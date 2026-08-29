@@ -8,7 +8,7 @@
 // ⭐ DEVAM EDEBİLİRLİK: mobilde şebeke kopması masaüstünden çok daha sık
 // (MOBILE.md §5). Yarım dosya diskte kalır, sonraki denemede kaldığı bayttan
 // devam eder.
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File, FileMode, Paths } from "expo-file-system";
 
 import * as Extractor from "../../modules/resonance-extractor";
 import type { AudioStreamInfo } from "../../modules/resonance-extractor";
@@ -106,7 +106,9 @@ export async function downloadTrack(
   }
   if (!file.exists) file.create({ intermediates: true });
 
-  const handle = file.open();
+  // ReadWrite: imleci elle kaydırıp KALDIĞI BAYTTAN devam ederiz (Truncate
+  // yarım dosyayı siler, Append ise SAF'ta imleci kaydırmaya izin vermez).
+  const handle = file.open(FileMode.ReadWrite);
   try {
     handle.offset = written;
     while (total === 0 || written < total) {

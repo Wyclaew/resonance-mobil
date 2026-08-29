@@ -7,10 +7,12 @@ import "../global.css";
 import { setupAudio } from "../src/audio/player";
 import { getDb } from "../src/lib/db";
 import { initDeviceId } from "../src/lib/device";
+import { hydrateLocalStorage, installWebShims } from "../src/lib/webShims";
 import { useSettingsStore } from "../src/store/useSettingsStore";
 
 /**
  * Açılış sırası ÖNEMLİ:
+ *   0) tarayıcı API taklitleri (kopyalanan senkron kodu bunları bekliyor)
  *   1) cihaz kimliği  → senkron satırları doğru cihaza yazılsın (getDeviceId senkron)
  *   2) veritabanı     → migration'lar (masaüstüyle BİREBİR aynı şema)
  *   3) ayarlar        → dil/tema, öneri ayarları
@@ -23,6 +25,8 @@ export default function RootLayout() {
   useEffect(() => {
     (async () => {
       try {
+        installWebShims();
+        await hydrateLocalStorage();
         await initDeviceId();
         await getDb();
         await useSettingsStore.getState().load();
