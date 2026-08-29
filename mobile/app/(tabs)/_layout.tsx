@@ -14,7 +14,7 @@ export default function TabsLayout() {
         headerTintColor: "#e9e7e1",
         headerTitleStyle: { fontSize: 16 },
         headerRight: () => (
-          <Link href="/account" asChild>
+          <Link href="/settings" asChild>
             <Pressable hitSlop={12} className="px-4">
               <Text className="text-muted text-lg">⚙</Text>
             </Pressable>

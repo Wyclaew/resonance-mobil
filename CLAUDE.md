@@ -90,8 +90,12 @@ Sürümü yükseltmeden önce orayı oku.
 - `mobile/src/db/migrations.ts` — ÜRETİLİR, elle düzenleme.
 
 ## Sırada (MOBILE.md fazları)
-- **Faz 2 (devam):** oy verme (tek modülden — masaüstü v1.8.7 dersi), playlist
-  ekranı, indirme kuyruğu + "yalnız Wi-Fi" ayarı, offline çalma testi.
+- **Faz 2 ✅:** oy verme (tek modülden), playlist ekranı, listeye ekleme,
+  indirme kuyruğu (tek sıra) + "yalnız Wi-Fi" + LRU kota, Ayarlar ekranı.
+  Çevrimdışı çalma cihazda doğrulandı (ikinci çalışta "yerel dosya").
+  ⚠️ İndirmeden önce `ensureTrack` ŞART: `cache.track_id` → `tracks` FK'sı var,
+  Keşfet önerisi henüz kayıtlı değil → "FOREIGN KEY constraint failed" (ölçüldü).
+  Masaüstündeki gotcha #13'ün aynısı: yazan her yol `ensureTrack`'ten geçer.
 - **Faz 3 (istemci hazır, GİRİŞ BEKLİYOR):** Hesap ekranı (`app/account.tsx`),
   açılışta `startSync()`, `backupDb()` ile otomatik yedek. Cihazda doğrulanan:
   Supabase'e ulaşım + hata yolu (yanlış parolayla "Invalid login credentials").

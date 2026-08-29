@@ -10,6 +10,7 @@ import { installAutoAdvance } from "../src/audio/autoAdvance";
 import { setupAudio } from "../src/audio/player";
 import { getDb } from "../src/lib/db";
 import { initDeviceId } from "../src/lib/device";
+import { loadMobileSettings } from "../src/lib/mobileSettings";
 import { hydrateLocalStorage, installWebShims } from "../src/lib/webShims";
 import { startSync } from "../src/lib/sync/engine";
 import { useSettingsStore } from "../src/store/useSettingsStore";
@@ -35,6 +36,7 @@ export default function RootLayout() {
         await initDeviceId();
         await getDb();
         await useSettingsStore.getState().load();
+        await loadMobileSettings();
         console.log(
           `[boot] dil: ${useSettingsStore.getState().language} · cihaz: ${
             (globalThis as { navigator?: { language?: string } }).navigator?.language ?? "?"

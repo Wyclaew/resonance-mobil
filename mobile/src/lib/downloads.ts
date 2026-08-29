@@ -13,6 +13,8 @@ import { Directory, File, FileMode, Paths } from "expo-file-system";
 import * as Extractor from "../../modules/resonance-extractor";
 import type { AudioStreamInfo } from "../../modules/resonance-extractor";
 import { getDb } from "./db";
+import { ensureTrack } from "./playlists";
+import type { Track } from "../types";
 
 const CHUNK = 1024 * 1024; // 1 MB
 const MAX_RETRY = 3;
@@ -80,8 +82,7 @@ export interface DownloadResult {
  * `permanent` = kullanıcının açıkça indirdiği (LRU budamasından muaf).
  */
 export async function downloadTrack(
-  trackId: string,
-  videoId: string,
+  track: Track,
   opts: {
     permanent?: boolean;
     preferSmall?: boolean;
@@ -89,6 +90,13 @@ export async function downloadTrack(
     signal?: AbortSignal;
   } = {}
 ): Promise<DownloadResult> {
+  // ⚠️ ÖNCE parçayı `tracks`'e yaz: `cache.track_id` oraya FK ile bağlı ve
+  // Keşfet'ten gelen öneri henüz kayıtlı DEĞİL → "FOREIGN KEY constraint failed"
+  // (ölçüldü). Aynı ders masaüstünde gotcha #13 olarak duruyor: yazan her yol
+  // `ensureTrack`'ten geçmeli.
+  await ensureTrack(track);
+  const trackId = track.id;
+  const videoId = track.sourceId;
   const info = await Extractor.resolve(videoId);
   const stream = Extractor.pickStream(info.streams, { preferSmall: opts.preferSmall });
   if (!stream) throw new Error("çalınabilir ses akışı yok");

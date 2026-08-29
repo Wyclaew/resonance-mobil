@@ -5,6 +5,7 @@ import TrackPlayer, { useProgress, usePlaybackState, State } from "react-native-
 
 import { togglePlay } from "../../src/audio/player";
 import { voteCurrent } from "../../src/lib/vote";
+import { useDownloadStore } from "../../src/store/useDownloadStore";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 
 function mmss(seconds: number): string {
@@ -19,6 +20,10 @@ export default function NowPlaying() {
   const playing = playback.state === State.Playing;
   const [karma, setKarma] = useState(0);
   const [barWidth, setBarWidth] = useState(0);
+  // ⚠️ Hook'lar erken dönüşün ÜSTÜNDE kalmalı — parça yokken de çağrılır.
+  const job = useDownloadStore((st) => (current ? st.jobs[current.id] : undefined));
+  const downloadStatus =
+    job?.status === "iniyor" ? `%${Math.round(job.progress * 100)}` : (job?.status ?? "");
 
   // Parça değişince karma göstergesi sıfırlanır; gerçek değer ilk oyda gelir.
   useEffect(() => setKarma(0), [current?.id]);
@@ -83,7 +88,20 @@ export default function NowPlaying() {
         <VoteButton dir={-1} disabled={!votable} onKarma={setKarma} />
       </View>
 
-      <View className="mt-6 flex-row items-center justify-center gap-6">
+      <View className="mt-4 flex-row items-center justify-center">
+        {/* Çevrimdışı çalma + veri tasarrufu: indirilen parça bir daha akış
+            istemez (mobilde en değerli özellik — MOBILE.md §1). */}
+        <Pressable
+          onPress={() => useDownloadStore.getState().enqueue(current)}
+          className="rounded-lg bg-surface-2 px-4 py-2"
+        >
+          <Text className="text-muted text-xs">
+            {downloadStatus ? `⬇ ${downloadStatus}` : "⬇ İndir"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View className="mt-4 flex-row items-center justify-center gap-6">
         <Pressable
           onPress={() => usePlayerStore.getState().previous()}
           className="h-12 w-12 items-center justify-center rounded-full bg-surface-2"
