@@ -44,6 +44,12 @@ Numara: mobil, masaüstüyle **AYNI modül yollarını** kendi uygulamalarıyla 
 | `@tauri-apps/api/core` | Rust `invoke` | `src/lib/tauriShim.ts` → NewPipe modülü |
 | `../store/useSettingsStore` | zustand | aynı dosya (kopya) |
 
+Ayrıca `src/lib/webShims.ts` (açılışta ilk çalışan) kopyaların beklediği tarayıcı
+API'lerini doldurur: `localStorage` (Supabase oturumu → AsyncStorage),
+`window` olay hedefi + `CustomEvent` (oy karma olayı), `window` "focus" →
+`AppState` (senkron tetikleyicisi), `crypto.randomUUID` (Hermes'te yok; liste
+kimlikleri), `navigator.language` (yoksa arayüz dili HEP "en" düşüyordu).
+
 → `recommender.ts`, `sync/engine.ts`, `playlists.ts`, `history.ts`… **tek satır
 değişmeden** çalışır. Takma ad iki yerde tanımlı: `metro.config.js` + `tsconfig.json`.
 

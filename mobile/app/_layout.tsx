@@ -34,6 +34,11 @@ export default function RootLayout() {
         await initDeviceId();
         await getDb();
         await useSettingsStore.getState().load();
+        console.log(
+          `[boot] dil: ${useSettingsStore.getState().language} · cihaz: ${
+            (globalThis as { navigator?: { language?: string } }).navigator?.language ?? "?"
+          }`
+        );
         await setupAudio();
         setReady(true);
         // Senkron arayüzü BEKLETMEZ: giriş yapılmamışsa sessizce çıkar,
