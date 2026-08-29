@@ -86,7 +86,13 @@ Sürümü yükseltmeden önce orayı oku.
 ## Sırada (MOBILE.md fazları)
 - **Faz 2 (devam):** oy verme (tek modülden — masaüstü v1.8.7 dersi), playlist
   ekranı, indirme kuyruğu + "yalnız Wi-Fi" ayarı, offline çalma testi.
-- **Faz 3:** senkron istemcisi (`sync/engine.ts` kopyası hazır; Supabase auth +
-  realtime + `outbox` mobil eklentisi). ⚠️ İlk testten önce DB yedeği.
+- **Faz 3 (istemci hazır, GİRİŞ BEKLİYOR):** Hesap ekranı (`app/account.tsx`),
+  açılışta `startSync()`, `backupDb()` ile otomatik yedek. Cihazda doğrulanan:
+  Supabase'e ulaşım + hata yolu (yanlış parolayla "Invalid login credentials").
+  **Gerçek tur için kullanıcının kendi hesabıyla giriş yapması gerek.**
+  İlk tur önerisi: "Yalnız buluttan çek" (salt-okunur) → sonra "Buluttan al".
+  ℹ️ **`outbox` GEREKMEDİ**: motor su terazisi (`last_pushed`) kullanıyor —
+  OS uygulamayı push'tan önce öldürse bile satırlar `updated_at > last_pushed`
+  kaldığı için bir sonraki turda gider. (MOBILE.md §6 "gerekebilir" diyordu.)
 - **Faz 4:** Keşfet + öneri (`TARGET_QUEUE_AHEAD` 20 → 8-10, pil/veri).
 - **Faz 5:** kilit ekranı görseli, ses seviyesi eşitleme, ambiyans.
