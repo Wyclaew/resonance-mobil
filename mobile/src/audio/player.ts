@@ -33,7 +33,14 @@ export async function setupAudio(): Promise<void> {
       Capability.SeekTo,
       Capability.Stop,
     ],
-    compactCapabilities: [Capability.Play, Capability.Pause, Capability.SkipToNext],
+    // v5: "compactCapabilities" yerine bildirimde gorunecek yetenekler.
+    notificationCapabilities: [
+      Capability.Play,
+      Capability.Pause,
+      Capability.SkipToNext,
+      Capability.SkipToPrevious,
+      Capability.SeekTo,
+    ],
     progressUpdateEventInterval: 1,
   });
   await TrackPlayer.setRepeatMode(RepeatMode.Off);

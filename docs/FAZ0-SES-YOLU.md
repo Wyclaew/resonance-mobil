@@ -144,3 +144,29 @@ sağlık 0-512K: 206      3MB civarı: 206      ← KISITSIZ (android_vr 1 MB'ta
    NewPipeExtractor sürümü yükseltilip **yeni build** gerekir. Azaltma: sürüm tek
    satırda (`modules/resonance-extractor/android/build.gradle`), ve indirilmiş
    parçalar çıkarımdan bağımsız çalar.
+
+## 4. CİHAZDA doğrulama (2026-08-29, Pixel 10 Pro XL emülatörü, Android 37)
+
+Faz 0'ın asıl kabul ölçütü buydu (MOBILE.md §8): *"stream URL çıkar → çal →
+uygulamayı arka plana al, çalmaya devam ediyor mu?"*
+
+| adım | sonuç |
+| --- | --- |
+| 8 migration cihazda uygulandı (v1→v8) | ✅ `[db] migration v8 … uygulandı` |
+| Arama (NewPipe → YT Music şarkılar) | ✅ 25 sonuç, süre + sanatçı + kapak dolu |
+| Paylaşılan `isLikelySong` filtresi mobilde çalıştı | ✅ (masaüstüyle aynı kod) |
+| Adres çözümü + çalma | ✅ `[audio] çalıyor: Little Dark Age (akış)` |
+| MediaSession + bildirim + foreground service | ✅ `state=PLAYING(3)`, medya bildirimi var |
+| **Arka planda çalmaya devam** (HOME'a basıldı) | ✅ 54. saniyede hâlâ `PLAYING(3)` |
+
+### Yol boyunca çıkan iki gerçek engel (ikisi de çözüldü)
+1. **`react-native-track-player@4.1.2` RN 0.86'da DERLENMİYOR** —
+   `Arguments.fromBundle` artık null kabul etmiyor (2 Kotlin hatası).
+2. Yamalanınca derleniyor ama **Yeni Mimari'de (New Architecture) ÇALIŞMIYOR**:
+   `TurboModule system assumes returnType == void iff the method is synchronous`
+   — v4'ün `@ReactMethod fun x(...) = scope.launch {…}` yazımı `Job` döndürüyor,
+   interop katmanı modülün tamamını reddediyor.
+   **Çözüm:** `react-native-track-player@nightly` (**5.0.0-alpha0**) — gerçek
+   TurboModule (`codegenConfig` var). Alpha olduğu için sürüm SABİTLENDİ;
+   yükseltmeden önce bu bölümü oku. API farkı: `compactCapabilities` →
+   `notificationCapabilities`.

@@ -8,7 +8,8 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum:** Faz 0 (ses yolu doğrulaması) ✅ bitti, Faz 2 (mobil iskelet) devam ediyor.
+**Durum:** Faz 0 ✅ bitti (cihazda arama → çalma → arka planda devam DOĞRULANDI),
+Faz 2 (mobil iskelet) devam ediyor.
 
 ## ⛔ Kritik kurallar
 - Türkçe konuş; kod içi yorumlar da Türkçe (masaüstü stiliyle aynı).
@@ -62,6 +63,14 @@ npx expo run:android                   # emülatöre/telefona kurar
 Emülatör: `$ANDROID_HOME/emulator/emulator -avd Pixel_10_Pro_XL`.
 Log: `adb logcat -s ReactNativeJS:V ResonanceExtractor:V`.
 ⚠️ Expo Go YETMEZ (native modül var) — dev client / gerçek build şart.
+Dev client'ı sunucuya bağlamak:
+`adb shell am start -a android.intent.action.VIEW -d "resonance://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081"`
+(önce `adb reverse tcp:8081 tcp:8081`).
+
+⚠️ **`react-native-track-player` sürümü SABİT: `@nightly` (5.0.0-alpha0).**
+Kararlı 4.1.2 RN 0.86'da hem derlenmiyor hem de Yeni Mimari'de TurboModule
+interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4.
+Sürümü yükseltmeden önce orayı oku.
 
 ## Mimari
 - `mobile/app/` — expo-router ekranları (Şu An · Ara · Kütüphane · İndirilenler).
