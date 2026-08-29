@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+web-build/
+# Expo prebuild çıktısı (CNG) — modül içindeki android/ HARİÇ tutulmalı
+/mobile/android/
+/mobile/ios/
+*.log
+.DS_Store
+.env
+.env.local
+# Gradle / Java spike çıktıları
+spike/newpipe/.gradle/
+spike/newpipe/build/
+spike/node-extract/node_modules/
+spike/node-extract/package-lock.json

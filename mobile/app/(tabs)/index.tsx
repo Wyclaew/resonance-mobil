@@ -1,0 +1,78 @@
+import { Image } from "expo-image";
+import { Pressable, Text, View } from "react-native";
+import { useProgress, usePlaybackState, State } from "react-native-track-player";
+
+import { togglePlay } from "../../src/audio/player";
+import { usePlayerStore } from "../../src/store/usePlayerStore";
+
+function mmss(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+export default function NowPlaying() {
+  const { current, loading, error } = usePlayerStore();
+  const progress = useProgress(250);
+  const playback = usePlaybackState();
+  const playing = playback.state === State.Playing;
+
+  if (!current) {
+    return (
+      <View className="flex-1 items-center justify-center bg-bg px-8">
+        <Text className="text-muted text-center text-sm">
+          Henüz bir şey çalmıyor. “Ara” sekmesinden bir şarkı seç.
+        </Text>
+      </View>
+    );
+  }
+
+  const ratio = progress.duration > 0 ? progress.position / progress.duration : 0;
+
+  return (
+    <View className="flex-1 bg-bg px-6 pt-16">
+      <View className="aspect-square w-full overflow-hidden rounded-lg bg-surface-2">
+        {current.thumbnail ? (
+          <Image source={{ uri: current.thumbnail }} style={{ flex: 1 }} contentFit="cover" />
+        ) : null}
+      </View>
+
+      <Text className="text-text mt-6 text-xl font-semibold" numberOfLines={2}>
+        {current.title}
+      </Text>
+      <Text className="text-muted mt-1 text-base" numberOfLines={1}>
+        {current.artist}
+      </Text>
+
+      <View className="mt-6 h-1 w-full rounded bg-surface-3">
+        <View className="h-1 rounded bg-accent" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+      </View>
+      <View className="mt-2 flex-row justify-between">
+        <Text className="text-faint text-xs">{mmss(progress.position)}</Text>
+        <Text className="text-faint text-xs">{mmss(progress.duration)}</Text>
+      </View>
+
+      {error ? <Text className="text-down mt-4 text-sm">{error}</Text> : null}
+
+      <View className="mt-8 flex-row items-center justify-center gap-6">
+        <Pressable
+          onPress={() => usePlayerStore.getState().previous()}
+          className="h-12 w-12 items-center justify-center rounded-full bg-surface-2"
+        >
+          <Text className="text-text text-lg">⏮</Text>
+        </Pressable>
+        <Pressable
+          onPress={togglePlay}
+          className="h-16 w-16 items-center justify-center rounded-full bg-accent"
+        >
+          <Text className="text-lg text-bg">{loading ? "…" : playing ? "⏸" : "▶"}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => usePlayerStore.getState().next()}
+          className="h-12 w-12 items-center justify-center rounded-full bg-surface-2"
+        >
+          <Text className="text-text text-lg">⏭</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}

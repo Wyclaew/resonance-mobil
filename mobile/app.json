@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Resonance",
+    "slug": "resonance-mobil",
+    "scheme": "resonance",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0c0c0d",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.resonance.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#0c0c0d",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-router",
+      "expo-image",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "extraMavenRepos": [
+              "https://jitpack.io"
+            ]
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

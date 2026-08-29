@@ -1,0 +1,12 @@
+{
+  "name": "spike-node-extract",
+  "private": true,
+  "type": "module",
+  "description": "Faz 0 spike: can youtubei.js resolve a playable audio URL from this machine?",
+  "dependencies": {
+    "bgutils-js": "^4.0.3",
+    "googlevideo": "^4.1.1",
+    "jsdom": "^30.0.1",
+    "youtubei.js": "^18.0.0"
+  }
+}

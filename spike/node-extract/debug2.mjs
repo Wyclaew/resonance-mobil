@@ -1,0 +1,11 @@
+import { Innertube } from 'youtubei.js';
+const id = process.argv[2];
+const yt = await Innertube.create({ retrieve_player: true });
+const info = await yt.getInfo(id, 'WEB_EMBEDDED');
+const sd = info.streaming_data;
+console.log('sabr url?', !!sd?.server_abr_streaming_url);
+console.log('ustreamer config?', !!info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config);
+console.log('formats:', sd?.formats?.length, 'adaptive:', sd?.adaptive_formats?.length);
+console.log('expires:', sd?.expires);
+const f = sd?.adaptive_formats?.find(x=>x.itag===140);
+console.log('raw140 keys with url-ish:', f && JSON.stringify(Object.fromEntries(Object.entries(f).filter(([k])=>/url|cipher|sig/i.test(k)))));

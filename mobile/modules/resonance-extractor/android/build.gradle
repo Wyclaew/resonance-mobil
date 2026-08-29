@@ -1,0 +1,34 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'maven-publish'
+
+group = 'com.resonance.extractor'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "com.resonance.extractor"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions { abortOnError false }
+}
+
+repositories {
+  mavenCentral()
+  maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+  // ⭐ Ses yolu: NewPipeExtractor (Faz 0'da ÖLÇÜLDÜ, docs/FAZ0-SES-YOLU.md).
+  // yt-dlp Android'e gömülemediği için çıkarım burada yapılır.
+  implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.26.5'
+  implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+}
