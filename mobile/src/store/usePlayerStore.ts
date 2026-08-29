@@ -2,7 +2,10 @@ import TrackPlayer from "react-native-track-player";
 import { create } from "zustand";
 
 import { playTrack } from "../audio/player";
+import * as Extractor from "../../modules/resonance-extractor";
+import { getRecommendations, songCore, type Recommendation } from "../lib/recommender";
 import type { QueueItem, Track } from "../types";
+import { useSettingsStore } from "./useSettingsStore";
 
 /**
  * Oynatma kuyruğu — masaüstündeki `usePlayerStore.ts`'in (1731 satır) mobil
@@ -17,17 +20,52 @@ interface PlayerState {
   index: number;
   loading: boolean;
   error: string | null;
+  /** Keşfet kuyruğu mu çalıyor? */
+  discovery: boolean;
+  /** Bu partiyi getiren tohum sanatçılar — "başka tarz" bunları dışlar. */
+  discoverySeedArtists: string[];
+  discoveryFilters: string[];
   /** `playlistId` verilirse kuyruğun tamamı o listeden sayılır → oy verilebilir. */
-  playNow: (track: Track, queue?: Track[], playlistId?: string) => Promise<void>;
+  playNow: (track: QueueSource, queue?: QueueSource[], playlistId?: string) => Promise<void>;
   next: () => Promise<void>;
   previous: () => Promise<void>;
+  /** Keşfet: öneri motorundan yeni parti kurar ve çalmaya başlar. */
+  startDiscovery: (filters?: string[]) => Promise<void>;
+  /** "Başka tarz": mevcut partinin tohum sanatçılarını dışlayıp yeniden kurar. */
+  rerollDiscovery: () => Promise<void>;
+  /** Kaynak koptuğunda aynı parçayı kaldığı saniyeden yeniden bağlar. */
+  resumeCurrent: (fromSeconds: number) => Promise<void>;
 }
 
+/** Keşfet oturumunun sanal liste kimliği — masaüstüyle AYNI değer. */
+export const DISCOVERY_ID = "__discovery__";
+
+/**
+ * Kuyrukta ileride tutulacak parça sayısı. Masaüstünde 20; mobilde
+ * MOBILE.md §7 gereği DÜŞÜK: her öneri bir radyo isteği, her istek pil + veri.
+ */
+const TARGET_QUEUE_AHEAD = 10;
+
+// Oturum belleği: aynı şarkı (ve aynı şarkının başka kaydı) tekrar gelmesin.
+// ⚠️ `excludeIds` TEK BAŞINA YETMEZ — aynı şarkının farklı yüklemesinin id'si
+// farklıdır; `songCore` çekirdeği bunu yakalar (CLAUDE.md).
+const recommendedThisSession = new Set<string>();
+const recommendedCoresThisSession = new Set<string>();
+
 let token = 0;
-const toItem = (t: Track, i: number, playlistId?: string): QueueItem => ({
+let refilling = false;
+/** Öneriden gelen alanlar (gerekçe, tohum) kuyrukta KORUNUR — arayüz
+ *  "neden bu şarkı" diye gösteriyor ve reroll tohumları buradan okuyor. */
+type QueueSource = Track & Partial<Pick<Recommendation, "reason" | "seedArtist" | "recSource">>;
+
+const toItem = (t: QueueSource, i: number, playlistId?: string): QueueItem => ({
   ...t,
   uid: `${t.id}#${i}#${Date.now()}`,
   playlistId,
+  isRecommendation: !!t.reason,
+  recReason: t.reason,
+  recSource: t.recSource,
+  seedArtist: t.seedArtist,
 });
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -36,6 +74,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   index: -1,
   loading: false,
   error: null,
+  discovery: false,
+  discoverySeedArtists: [],
+  discoveryFilters: [],
 
   playNow: async (track, queue, playlistId) => {
     const mine = ++token;
@@ -56,10 +97,49 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   next: async () => {
-    const { queue, index } = get();
+    const { queue, index, discovery } = get();
     const nextIndex = index + 1;
+    // Sonsuz radyo: sona yaklaşınca arka planda yeni parti ekle (masaüstündeki
+    // `refillRadio` karşılığı). Mobilde eşik düşük tutulur — her çağrı veri.
+    if (discovery && nextIndex >= queue.length - 2) void refillDiscovery(set, get);
     if (nextIndex >= queue.length) return;
     await get().playNow(queue[nextIndex], queue, queue[nextIndex].playlistId);
+  },
+
+  resumeCurrent: async (fromSeconds) => {
+    const current = get().current;
+    if (!current) return;
+    try {
+      await playTrack(current, { startSeconds: fromSeconds });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e), loading: false });
+    }
+  },
+
+  startDiscovery: async (filters) => {
+    set({ loading: true, error: null, discoveryFilters: filters ?? [] });
+    try {
+      const recs = await fetchDiscovery(filters ?? [], new Set());
+      if (!recs.length) throw new Error("öneri bulunamadı — biraz dinle/oy ver, havuz dolsun");
+      await startBatch(set, get, recs);
+    } catch (e) {
+      set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+      console.error("[keşfet] başlatılamadı:", e);
+    }
+  },
+
+  rerollDiscovery: async () => {
+    // Mevcut partinin tohumlarını dışla → gelen tarz GERÇEKTEN değişsin
+    // (CLAUDE.md: `excludeSeedArtists` olmadan aynı radyolar tekrar açılıyor).
+    const exclude = new Set(get().discoverySeedArtists.map((a) => a.toLowerCase()));
+    set({ loading: true, error: null });
+    try {
+      const recs = await fetchDiscovery(get().discoveryFilters, exclude);
+      if (!recs.length) throw new Error("başka tarz bulunamadı");
+      await startBatch(set, get, recs);
+    } catch (e) {
+      set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   previous: async () => {
@@ -71,3 +151,74 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     await get().playNow(queue[index - 1], queue, queue[index - 1].playlistId);
   },
 }));
+
+
+// ── Keşfet yardımcıları ────────────────────────────────────────────────────
+
+async function fetchDiscovery(
+  filters: string[],
+  excludeSeedArtists: Set<string>
+): Promise<Recommendation[]> {
+  const s = useSettingsStore.getState();
+  return getRecommendations({
+    playlistId: DISCOVERY_ID,
+    filters,
+    excludeSeedArtists,
+    excludeIds: new Set(recommendedThisSession),
+    excludeCores: new Set(recommendedCoresThisSession),
+    limit: TARGET_QUEUE_AHEAD,
+    useYouTube: s.recYouTube,
+    useLibrary: s.recLibrary,
+    halfLifeDays: s.karmaHalfLifeDays,
+  });
+}
+
+type Setter = (partial: Partial<PlayerState>) => void;
+
+async function startBatch(
+  set: Setter,
+  get: () => PlayerState,
+  recs: Recommendation[]
+): Promise<void> {
+  for (const r of recs) {
+    recommendedThisSession.add(r.id);
+    recommendedCoresThisSession.add(songCore(r.title, r.artist));
+  }
+  const seeds = Array.from(
+    new Set(recs.map((r) => r.seedArtist).filter((a): a is string => !!a))
+  );
+  set({ discovery: true, discoverySeedArtists: seeds });
+  await get().playNow(recs[0], recs, DISCOVERY_ID);
+
+  // ⭐ Adresleri ÖNDEN çöz (indirme değil): ölçümde hazır olma süresinin %70'i
+  // adres çözümü, ve bu iş pil açısından ucuz (MOBILE.md §5). Gerçek indirme
+  // muhafazakâr kalır — veri kotası.
+  const next = recs.slice(1, 4).map((r) => r.sourceId);
+  if (next.length) {
+    Extractor.resolveMany(next, 3).catch((e) => console.warn("[keşfet] ısıtma:", e));
+  }
+}
+
+/**
+ * Kuyruk tükenmeden yeni öneri ekler. Hata olursa SESSİZ: kullanıcı çalmaya
+ * devam etsin, bir sonraki denemede yine denenir.
+ */
+async function refillDiscovery(set: Setter, get: () => PlayerState): Promise<void> {
+  if (refilling) return;
+  refilling = true;
+  try {
+    const recs = await fetchDiscovery(get().discoveryFilters, new Set());
+    if (!recs.length) return;
+    for (const r of recs) {
+      recommendedThisSession.add(r.id);
+      recommendedCoresThisSession.add(songCore(r.title, r.artist));
+    }
+    const queue = get().queue;
+    const added = recs.map((r, i) => toItem(r, queue.length + i, DISCOVERY_ID));
+    set({ queue: [...queue, ...added] });
+  } catch (e) {
+    console.warn("[keşfet] kuyruk tazelenemedi:", e);
+  } finally {
+    refilling = false;
+  }
+}

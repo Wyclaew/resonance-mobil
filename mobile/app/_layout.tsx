@@ -6,6 +6,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 import "../global.css";
 import { AddToPlaylistSheet } from "../src/components/AddToPlaylistSheet";
 import { Toasts } from "../src/components/Toasts";
+import { installAutoAdvance } from "../src/audio/autoAdvance";
 import { setupAudio } from "../src/audio/player";
 import { getDb } from "../src/lib/db";
 import { initDeviceId } from "../src/lib/device";
@@ -40,6 +41,7 @@ export default function RootLayout() {
           }`
         );
         await setupAudio();
+        installAutoAdvance();
         setReady(true);
         // Senkron arayüzü BEKLETMEZ: giriş yapılmamışsa sessizce çıkar,
         // yapılmışsa arka planda ilk turu atar (docs/SYNC.md tetikleyicileri).

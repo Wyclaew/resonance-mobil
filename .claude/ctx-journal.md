@@ -1,15 +1,15 @@
-_Otomatik — 2026-08-29 18:03, son olculen baglam ~330K_
+_Otomatik — 2026-08-29 18:52, son olculen baglam ~391K_
 
 **Son komutlar**
+- `cd "/Users/erne/Desktop/Resonance Mobil/mobile/android" && export JAVA_HOME="/Applications/Android Studio.app/`
+- `cd "/Users/erne/Desktop/Resonance Mobil" && git add -A && git commit -q -F -`
+- `until grep -qE "BUILD SUCCESSFUL|BUILD FAILED|FAILURE:" /tmp/build4.log; do sleep 10; done; grep -E "BUILD SUC`
+- `cd "/Users/erne/Desktop/Resonance Mobil/mobile" && grep -c "expo-localization" android/app/build/generated/aut`
+- `cd "/Users/erne/Desktop/Resonance Mobil/mobile" && grep -E "expo-localization" /tmp/build4.log | head -2; expo`
+- `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; adb shell am start -a android.intent.action.VIEW`
 - `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; S=/private/tmp/claude-501/-Users-erne-Desktop-Re`
 - `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; S=/private/tmp/claude-501/-Users-erne-Desktop-Re`
-- `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; adb shell dumpsys media_session 2>/dev/null | gr`
-- `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; adb shell input keyevent KEYCODE_HOME; sleep 15;`
 - `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; S=/private/tmp/claude-501/-Users-erne-Desktop-Re`
-- `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; adb shell input tap 168 2880; sleep 3; adb shell`
-- `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; adb shell uiautomator dump /sdcard/ui.xml 2>&1 |`
 - `export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools"; S=/private/tmp/claude-501/-Users-erne-Desktop-Re`
-- `cd "/Users/erne/Desktop/Resonance Mobil" && cat >> docs/FAZ0-SES-YOLU.md`
-- `cd "/Users/erne/Desktop/Resonance Mobil" && git log --oneline | head -4; git status --short | head -3; echo "-`
-- `M=/Users/erne/.claude/projects/-Users-erne-Desktop-Resonance-Mobil/memory; ls "$M" 2>/dev/null | head; cat "$M`
-- `M=/Users/erne/.claude/projects/-Users-erne-Desktop-Resonance-Mobil/memory; cat > "$M/git-attribution.md"`
+- `cd "/Users/erne/Desktop/Resonance Mobil/mobile" && python3 -`
+- `cd "/Users/erne/Desktop/Resonance Mobil" && python3 scripts/sync-core.py --check; python3 -`

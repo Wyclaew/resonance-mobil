@@ -100,5 +100,12 @@ Sürümü yükseltmeden önce orayı oku.
   ℹ️ **`outbox` GEREKMEDİ**: motor su terazisi (`last_pushed`) kullanıyor —
   OS uygulamayı push'tan önce öldürse bile satırlar `updated_at > last_pushed`
   kaldığı için bir sonraki turda gider. (MOBILE.md §6 "gerekebilir" diyordu.)
-- **Faz 4:** Keşfet + öneri (`TARGET_QUEUE_AHEAD` 20 → 8-10, pil/veri).
+- **Faz 4 (çekirdek hazır):** Keşfet sekmesi, `startDiscovery` / `rerollDiscovery`,
+  kuyruk sonuna yaklaşınca tazeleme, `TARGET_QUEUE_AHEAD` **10** (masaüstünde 20 —
+  mobilde her öneri bir radyo isteği = pil + veri). Kalan: tür/ruh hali filtreleri,
+  tarz kilidi, "yalnız Wi-Fi'da önden indir".
+  ⚠️ Kuyruğu ilerletme `Event.PlaybackQueueEnded`'e **KÖRÜ KÖRÜNE BAĞLI DEĞİL**
+  (`src/audio/autoAdvance.ts`): konum beklenen süreye yakın değilse "kaynak koptu"
+  sayılır ve parça kaldığı saniyeden yeniden bağlanır — masaüstünün 35-45. saniyede
+  sessizce atlama bug'ının mobil karşılığı (CLAUDE.md v1.8.5, MOBILE.md §5.2-1).
 - **Faz 5:** kilit ekranı görseli, ses seviyesi eşitleme, ambiyans.

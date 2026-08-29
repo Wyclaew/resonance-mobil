@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { useProgress, usePlaybackState, State } from "react-native-track-player";
+import TrackPlayer, { useProgress, usePlaybackState, State } from "react-native-track-player";
 
 import { togglePlay } from "../../src/audio/player";
 import { voteCurrent } from "../../src/lib/vote";
@@ -18,6 +18,7 @@ export default function NowPlaying() {
   const playback = usePlaybackState();
   const playing = playback.state === State.Playing;
   const [karma, setKarma] = useState(0);
+  const [barWidth, setBarWidth] = useState(0);
 
   // Parça değişince karma göstergesi sıfırlanır; gerçek değer ilk oyda gelir.
   useEffect(() => setKarma(0), [current?.id]);
@@ -51,9 +52,21 @@ export default function NowPlaying() {
         {current.artist}
       </Text>
 
-      <View className="mt-6 h-1 w-full rounded bg-surface-3">
-        <View className="h-1 rounded bg-accent" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
-      </View>
+      {/* Dokunulan yere atlar. Şerit ince olduğu için dokunma alanı dolgu ile
+          büyütülür (parmak 1 piksellik çizgiyi tutturamaz). */}
+      <Pressable
+        className="mt-6 py-3"
+        onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+        onPress={(e) => {
+          if (!barWidth || progress.duration <= 0) return;
+          const target = (e.nativeEvent.locationX / barWidth) * progress.duration;
+          void TrackPlayer.seekTo(Math.max(0, Math.min(progress.duration, target)));
+        }}
+      >
+        <View className="h-1 w-full rounded bg-surface-3">
+          <View className="h-1 rounded bg-accent" style={{ width: `${Math.min(100, ratio * 100)}%` }} />
+        </View>
+      </Pressable>
       <View className="mt-2 flex-row justify-between">
         <Text className="text-faint text-xs">{mmss(progress.position)}</Text>
         <Text className="text-faint text-xs">{mmss(progress.duration)}</Text>

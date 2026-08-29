@@ -26,6 +26,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Şu An" }} />
+      <Tabs.Screen name="discover" options={{ title: "Keşfet" }} />
       <Tabs.Screen name="search" options={{ title: "Ara" }} />
       <Tabs.Screen name="library" options={{ title: "Kütüphane" }} />
       <Tabs.Screen name="downloads" options={{ title: "İndirilenler" }} />
