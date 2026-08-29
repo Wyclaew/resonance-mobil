@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { useFocusEffect } from "expo-router";
-import { FlatList, Text, View } from "react-native";
+import { Link, useFocusEffect } from "expo-router";
+import { FlatList, Pressable, Text, View } from "react-native";
 
 import { getDb } from "../../src/lib/db";
 
@@ -44,10 +44,12 @@ export default function Library() {
           </Text>
         }
         renderItem={({ item }) => (
-          <View className="mb-2 rounded-lg bg-surface px-3 py-3">
-            <Text className="text-text text-sm">{item.name}</Text>
-            <Text className="text-faint text-xs">{item.track_count} parça</Text>
-          </View>
+          <Link href={{ pathname: "/playlist/[id]", params: { id: item.id } }} asChild>
+            <Pressable className="mb-2 rounded-lg bg-surface px-3 py-3">
+              <Text className="text-text text-sm">{item.name}</Text>
+              <Text className="text-faint text-xs">{item.track_count} parça</Text>
+            </Pressable>
+          </Link>
         )}
       />
     </View>

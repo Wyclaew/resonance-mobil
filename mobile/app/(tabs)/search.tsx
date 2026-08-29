@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 
 import * as Extractor from "../../modules/resonance-extractor";
+import { useAddToPlaylist } from "../../src/components/AddToPlaylistSheet";
 import { isLikelySong } from "../../src/lib/recommender";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import type { Track } from "../../src/types";
@@ -66,6 +67,15 @@ export default function Search() {
                 {item.artist}
               </Text>
             </View>
+            {/* Listeye ekleme yalnız düzenleme değil, ÖĞRENME sinyali —
+                `artistAffinity`'yi besler (bkz. AddToPlaylistSheet). */}
+            <Pressable
+              hitSlop={10}
+              onPress={() => useAddToPlaylist.getState().open(item)}
+              className="px-2"
+            >
+              <Text className="text-muted text-lg">＋</Text>
+            </Pressable>
           </Pressable>
         )}
       />

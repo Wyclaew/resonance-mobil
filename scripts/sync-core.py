@@ -22,6 +22,7 @@ FILES = [
     "lib/i18n.ts",
     "lib/sync/engine.ts", "lib/sync/client.ts",
     "lib/settings.ts", "lib/playlists.ts", "lib/history.ts", "lib/format.ts",
+    "lib/vote.ts",
     "store/useSettingsStore.ts", "store/useToastStore.ts",
 ]
 

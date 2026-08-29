@@ -1,8 +1,10 @@
 import { Image } from "expo-image";
+import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useProgress, usePlaybackState, State } from "react-native-track-player";
 
 import { togglePlay } from "../../src/audio/player";
+import { voteCurrent } from "../../src/lib/vote";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 
 function mmss(seconds: number): string {
@@ -15,6 +17,10 @@ export default function NowPlaying() {
   const progress = useProgress(250);
   const playback = usePlaybackState();
   const playing = playback.state === State.Playing;
+  const [karma, setKarma] = useState(0);
+
+  // Parça değişince karma göstergesi sıfırlanır; gerçek değer ilk oyda gelir.
+  useEffect(() => setKarma(0), [current?.id]);
 
   if (!current) {
     return (
@@ -27,6 +33,8 @@ export default function NowPlaying() {
   }
 
   const ratio = progress.duration > 0 ? progress.position / progress.duration : 0;
+  // Bu parça bir listeden çalıyorsa oy verilebilir (oylar liste bazlı — masaüstüyle aynı).
+  const votable = !!current.playlistId;
 
   return (
     <View className="flex-1 bg-bg px-6 pt-16">
@@ -53,7 +61,16 @@ export default function NowPlaying() {
 
       {error ? <Text className="text-down mt-4 text-sm">{error}</Text> : null}
 
-      <View className="mt-8 flex-row items-center justify-center gap-6">
+      {/* ⭐ Oy TEK YOLDAN geçer (`lib/vote.ts`) — masaüstü v1.8.7 dersi: iki ayrı
+          oy yolu olunca biri `ensureTrack`'i unutuyor ve oy SESSİZCE
+          öğrenmeye katılmıyordu (gotcha #13). */}
+      <View className="mt-6 flex-row items-center justify-center gap-4">
+        <VoteButton dir={1} disabled={!votable} onKarma={setKarma} />
+        <Text className="text-muted w-14 text-center text-sm">{votable ? karma : "—"}</Text>
+        <VoteButton dir={-1} disabled={!votable} onKarma={setKarma} />
+      </View>
+
+      <View className="mt-6 flex-row items-center justify-center gap-6">
         <Pressable
           onPress={() => usePlayerStore.getState().previous()}
           className="h-12 w-12 items-center justify-center rounded-full bg-surface-2"
@@ -74,5 +91,31 @@ export default function NowPlaying() {
         </Pressable>
       </View>
     </View>
+  );
+}
+
+
+function VoteButton({
+  dir,
+  disabled,
+  onKarma,
+}: {
+  dir: 1 | -1;
+  disabled: boolean;
+  onKarma: (k: number) => void;
+}) {
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={async () => {
+        const res = await voteCurrent(dir, (k) => onKarma(k.karma));
+        if (!res.ok) return; // cooldown/uygun değil — toast'ı vote.ts gösterir
+      }}
+      className={`h-11 w-11 items-center justify-center rounded-full ${
+        dir > 0 ? "bg-up-dim" : "bg-down-dim"
+      } ${disabled ? "opacity-30" : ""}`}
+    >
+      <Text className="text-text text-base">{dir > 0 ? "▲" : "▼"}</Text>
+    </Pressable>
   );
 }

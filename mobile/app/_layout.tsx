@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 
 import "../global.css";
+import { AddToPlaylistSheet } from "../src/components/AddToPlaylistSheet";
+import { Toasts } from "../src/components/Toasts";
 import { setupAudio } from "../src/audio/player";
 import { getDb } from "../src/lib/db";
 import { initDeviceId } from "../src/lib/device";
@@ -62,9 +64,11 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <View className="flex-1 bg-bg">
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0c0c0d" } }} />
-    </>
+      <AddToPlaylistSheet />
+      <Toasts />
+    </View>
   );
 }

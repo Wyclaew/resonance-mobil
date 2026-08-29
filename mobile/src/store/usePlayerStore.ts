@@ -17,13 +17,18 @@ interface PlayerState {
   index: number;
   loading: boolean;
   error: string | null;
-  playNow: (track: Track, queue?: Track[]) => Promise<void>;
+  /** `playlistId` verilirse kuyruğun tamamı o listeden sayılır → oy verilebilir. */
+  playNow: (track: Track, queue?: Track[], playlistId?: string) => Promise<void>;
   next: () => Promise<void>;
   previous: () => Promise<void>;
 }
 
 let token = 0;
-const toItem = (t: Track, i: number): QueueItem => ({ ...t, uid: `${t.id}#${i}#${Date.now()}` });
+const toItem = (t: Track, i: number, playlistId?: string): QueueItem => ({
+  ...t,
+  uid: `${t.id}#${i}#${Date.now()}`,
+  playlistId,
+});
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   current: null,
@@ -32,9 +37,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   loading: false,
   error: null,
 
-  playNow: async (track, queue) => {
+  playNow: async (track, queue, playlistId) => {
     const mine = ++token;
-    const items = (queue ?? [track]).map(toItem);
+    const items = (queue ?? [track]).map((t, i) => toItem(t, i, playlistId));
     const index = Math.max(0, items.findIndex((i) => i.id === track.id));
     set({ queue: items, index, current: items[index], loading: true, error: null });
     try {
@@ -54,7 +59,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const { queue, index } = get();
     const nextIndex = index + 1;
     if (nextIndex >= queue.length) return;
-    await get().playNow(queue[nextIndex], queue);
+    await get().playNow(queue[nextIndex], queue, queue[nextIndex].playlistId);
   },
 
   previous: async () => {
@@ -63,6 +68,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     // 3 saniyeden sonra "önceki" = baştan başlat (yaygın oynatıcı davranışı).
     if (position > 3) return void TrackPlayer.seekTo(0);
     if (index <= 0) return void TrackPlayer.seekTo(0);
-    await get().playNow(queue[index - 1], queue);
+    await get().playNow(queue[index - 1], queue, queue[index - 1].playlistId);
   },
 }));
