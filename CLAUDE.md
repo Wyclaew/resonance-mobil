@@ -8,8 +8,9 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum:** Faz 0 ✅ bitti (cihazda arama → çalma → arka planda devam DOĞRULANDI),
-Faz 2 (mobil iskelet) devam ediyor.
+**Durum:** Faz 0/2/4 ✅, Faz 3 istemcisi hazır (kullanıcı girişi bekliyor).
+Cihazda doğrulanan: arama → çalma → arka planda devam, Keşfet + filtreler,
+oy/karma, çevrimdışı indirme + ön indirme, çapraz cihaz devam bileşenleri.
 
 ## ⛔ Kritik kurallar
 - Türkçe konuş; kod içi yorumlar da Türkçe (masaüstü stiliyle aynı).
@@ -112,4 +113,14 @@ Sürümü yükseltmeden önce orayı oku.
   (`src/audio/autoAdvance.ts`): konum beklenen süreye yakın değilse "kaynak koptu"
   sayılır ve parça kaldığı saniyeden yeniden bağlanır — masaüstünün 35-45. saniyede
   sessizce atlama bug'ının mobil karşılığı (CLAUDE.md v1.8.5, MOBILE.md §5.2-1).
-- **Faz 5:** kilit ekranı görseli, ses seviyesi eşitleme, ambiyans.
+- **Faz 5:** ses seviyesi eşitleme (ExoPlayer `LoudnessCodecController`), ambiyans
+  ekranı, yerel dosyalar (`READ_MEDIA_AUDIO`), İstatistik/Wrapped ekranları.
+- **Eklenenler (bu turda):** ⭐ çapraz cihaz devam (`now_playing` + `device_queue`
+  yayınlama + "Devam et" bandı, DURAKLATILMIŞ kurulur), Keşfet ruh hali/tür
+  filtreleri, sıradakini **yalnız Wi-Fi'da** ön indirme (`permanent:false` → LRU'ya
+  açık), sanatçı kararları (daha çok / daha az / **önerme** — ikisi de senkronlanır),
+  uyku zamanlayıcı (kademeli kısılma).
+  ⚠️ Android'de `Alert` EN FAZLA 3 düğme gösterir; 4.'sü sessizce düşer.
+- **Kalan küçükler:** tarz kilidi (`lockedSeedArtist` motor destekliyor, UI yok),
+  "Sıradaki" kuyruk görünümü (liste modunda), içe aktarma ekranı
+  (`Extractor.playlist` hazır; senkron zaten listeleri getirdiği için düşük öncelik).
