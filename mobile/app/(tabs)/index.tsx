@@ -1,9 +1,10 @@
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import TrackPlayer, { useProgress, usePlaybackState, State } from "react-native-track-player";
 
 import { togglePlay } from "../../src/audio/player";
+import { useSleepTimer } from "../../src/audio/sleepTimer";
 import { ArtistActions } from "../../src/components/ArtistActions";
 import { ContinueBanner } from "../../src/components/ContinueBanner";
 import { voteCurrent } from "../../src/lib/vote";
@@ -24,6 +25,8 @@ export default function NowPlaying() {
   const [barWidth, setBarWidth] = useState(0);
   // ⚠️ Hook'lar erken dönüşün ÜSTÜNDE kalmalı — parça yokken de çağrılır.
   const job = useDownloadStore((st) => (current ? st.jobs[current.id] : undefined));
+  const sleepEndsAt = useSleepTimer((st) => st.endsAt);
+  const sleepLeft = sleepEndsAt ? Math.max(1, Math.round((sleepEndsAt - Date.now()) / 60000)) : 0;
   const downloadStatus =
     job?.status === "iniyor" ? `%${Math.round(job.progress * 100)}` : (job?.status ?? "");
 
@@ -107,6 +110,11 @@ export default function NowPlaying() {
             {downloadStatus ? `⬇ ${downloadStatus}` : "⬇ İndir"}
           </Text>
         </Pressable>
+        <Pressable onPress={askSleep} className="ml-2 rounded-lg bg-surface-2 px-4 py-2">
+          <Text className={sleepEndsAt ? "text-accent text-xs" : "text-muted text-xs"}>
+            {sleepEndsAt ? `⏱ ${sleepLeft} dk` : "⏱ Uyku"}
+          </Text>
+        </Pressable>
       </View>
 
       <View className="mt-4 flex-row items-center justify-center gap-6">
@@ -157,4 +165,26 @@ function VoteButton({
       <Text className="text-text text-base">{dir > 0 ? "▲" : "▼"}</Text>
     </Pressable>
   );
+}
+
+
+/**
+ * Uyku zamanlayıcı seçimi. Süre dolunca ses kademeli kısılıp duraklatılır.
+ * ⚠️ Android'de Alert EN FAZLA 3 düğme gösterir (4.'sü sessizce düşer) →
+ * "kapat" yalnız zamanlayıcı açıkken, bir süre seçeneğinin yerine gelir.
+ */
+function askSleep() {
+  const { setMinutes, endsAt } = useSleepTimer.getState();
+  const buttons = endsAt
+    ? [
+        { text: "Kapat", style: "destructive" as const, onPress: () => setMinutes(null) },
+        { text: "30 dk", onPress: () => setMinutes(30) },
+        { text: "60 dk", onPress: () => setMinutes(60) },
+      ]
+    : [
+        { text: "15 dk", onPress: () => setMinutes(15) },
+        { text: "30 dk", onPress: () => setMinutes(30) },
+        { text: "60 dk", onPress: () => setMinutes(60) },
+      ];
+  Alert.alert("Uyku zamanlayıcı", endsAt ? "Zamanlayıcı açık." : "Ne kadar sonra dursun?", buttons);
 }
