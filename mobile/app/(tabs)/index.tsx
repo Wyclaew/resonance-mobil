@@ -4,6 +4,7 @@ import { Pressable, Text, View } from "react-native";
 import TrackPlayer, { useProgress, usePlaybackState, State } from "react-native-track-player";
 
 import { togglePlay } from "../../src/audio/player";
+import { ArtistActions } from "../../src/components/ArtistActions";
 import { ContinueBanner } from "../../src/components/ContinueBanner";
 import { voteCurrent } from "../../src/lib/vote";
 import { useDownloadStore } from "../../src/store/useDownloadStore";
@@ -92,6 +93,8 @@ export default function NowPlaying() {
         <Text className="text-muted w-14 text-center text-sm">{votable ? karma : "—"}</Text>
         <VoteButton dir={-1} disabled={!votable} onKarma={setKarma} />
       </View>
+
+      <ArtistActions artist={current.artist} />
 
       <View className="mt-4 flex-row items-center justify-center">
         {/* Çevrimdışı çalma + veri tasarrufu: indirilen parça bir daha akış
