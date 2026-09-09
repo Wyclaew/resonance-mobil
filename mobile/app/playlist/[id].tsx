@@ -1,16 +1,22 @@
-import { Image } from "expo-image";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
-import { useFocusEffect } from "expo-router";
 import { FlatList, Pressable, Text, View } from "react-native";
 
+import { Eyebrow, TrackRow } from "../../src/components/TrackRow";
 import { getPlaylist, getPlaylistTracks } from "../../src/lib/playlists";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
+import { COLORS } from "../../src/theme";
 import type { PlaylistTrack } from "../../src/types";
+
+const mmss = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "";
+};
 
 /**
  * Liste detayı. Buradan çalınan parçalar `playlistId` taşır → oy verilebilir
- * (oylar liste bazlı, masaüstüyle aynı) ve karma/öneri motoru beslenir.
+ * ve karma/öneri motoru beslenir. Sol raydaki çubuk her satırın karmasını
+ * gösterir: liste boyunca zevkinin ekolayzırı gibi okunur.
  */
 export default function PlaylistDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,50 +33,51 @@ export default function PlaylistDetail() {
     }, [id])
   );
 
+  const totalMs = tracks.reduce((sum, t) => sum + t.durationMs, 0);
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.round((totalMs % 3_600_000) / 60_000);
+
   return (
     <View className="flex-1 bg-bg">
       <Stack.Screen
         options={{
           headerShown: true,
           title: name || "Liste",
-          headerStyle: { backgroundColor: "#0c0c0d" },
-          headerTintColor: "#e9e7e1",
+          headerStyle: { backgroundColor: COLORS.bg },
+          headerTintColor: COLORS.text,
+          headerTitleStyle: { fontFamily: "Archivo_700Bold", fontSize: 17 },
           headerShadowVisible: false,
         }}
       />
+
+      <View className="flex-row items-center justify-between px-5 pb-1">
+        <Eyebrow>{`${tracks.length} parça · ${hours ? `${hours} sa ` : ""}${minutes} dk`}</Eyebrow>
+        {tracks.length ? (
+          <Pressable
+            onPress={() => usePlayerStore.getState().playNow(tracks[0], tracks, id)}
+            className="h-8 justify-center rounded-full border border-accent-dim px-3"
+          >
+            <Text className="text-accent text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+              Baştan çal
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+
       <FlatList
         data={tracks}
         keyExtractor={(t) => t.id}
-        contentContainerClassName="px-4 pb-8"
-        ListEmptyComponent={<Text className="text-muted mt-8 text-sm">Bu listede parça yok.</Text>}
+        contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
+        ListEmptyComponent={<Text className="text-muted mt-10 px-4 text-sm">Bu listede parça yok.</Text>}
         renderItem={({ item }) => (
-          <Pressable
-            onPress={() =>
-              // Kuyruğun tamamı listeden gelir → her öğe playlistId taşır (oy şartı).
-              usePlayerStore.getState().playNow(item, tracks, id)
-            }
-            className="mb-2 flex-row items-center gap-3 rounded-lg bg-surface px-3 py-2"
-          >
-            <Image
-              source={{ uri: item.thumbnail }}
-              style={{ width: 44, height: 44, borderRadius: 6, backgroundColor: "#1c1c1f" }}
-              contentFit="cover"
-            />
-            <View className="flex-1">
-              <Text className="text-text text-sm" numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text className="text-muted text-xs" numberOfLines={1}>
-                {item.artist}
-              </Text>
-            </View>
-            {item.karma !== 0 ? (
-              <Text className={item.karma > 0 ? "text-up text-xs" : "text-down text-xs"}>
-                {item.karma > 0 ? "+" : ""}
-                {item.karma}
-              </Text>
-            ) : null}
-          </Pressable>
+          <TrackRow
+            title={item.title}
+            artist={item.artist}
+            thumbnail={item.thumbnail}
+            karma={item.karma}
+            meta={mmss(item.durationMs)}
+            onPress={() => usePlayerStore.getState().playNow(item, tracks, id)}
+          />
         )}
       />
     </View>

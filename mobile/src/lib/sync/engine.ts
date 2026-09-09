@@ -4,6 +4,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getDb, isTauri } from "../db";
 import { getSupabase, getUserId } from "./client";
 import { isSyncConfigured } from "./config";
+import { loadSettings, setSetting } from "../settings";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Resonance senkron motoru — local-first, delta sync, last-write-wins.
@@ -199,6 +200,13 @@ const NUM_DEFAULT_0 = new Set([
 const NUM_DEFAULT_1 = new Set(["weight"]);
 
 const PAGE = 500; // pull sayfa boyutu
+
+// ⭐ 24 SAATTE BİR TAM TUR ("derin onarım"). Geriye pay yeni kaymayı önler ama
+// GEÇMİŞTE kaçmış satırları geri getirmez. Tablolar küçük (birkaç yüz satır),
+// günde bir kez baştan çekmek ucuz ve iki cihazı kendiliğinden eşitler.
+const DEEP_PULL_EVERY_MS = 24 * 3600 * 1000;
+const DEEP_PULL_KEY = "sync.lastDeepPull";
+let deepPullPending = false;
 const CHUNK = 400; // push yığın boyutu
 const EPOCH0 = "1970-01-01T00:00:00Z";
 
@@ -343,7 +351,28 @@ async function pullTable(spec: TableSpec, userId: string): Promise<number> {
   const sql = upsertSql(spec);
 
   const { lastPulled } = await readWatermarks(spec.name);
-  let since = lastPulled || EPOCH0;
+  // ⭐⭐ SU TERAZİSİNE GERİYE PAY (v1.9.2) — CİHAZLAR ARASI SATIR KAYBININ KÖKÜ.
+  //
+  // `synced_at` sunucuda TRIGGER ile yazılır ve Postgres'te `now()` işlem
+  // BAŞLANGIÇ zamanıdır. İki cihaz aynı anda yazarken: A işlemi T1'de başlar,
+  // B işlemi T2'de (T2 > T1) başlar ama B ÖNCE commit eder. Tam bu aralıkta
+  // pull yapan cihaz yalnız B'yi görür ve su terazisini T2'ye taşır; A commit
+  // ettiğinde damgası T1 (< T2) olduğu için `gt(synced_at, T2)` filtresine
+  // ARTIK HİÇ TAKILMAZ → o satır o cihaza SONSUZA DEK gelmez.
+  // Kullanıcının gördüğü tablo: "Favorite Songs Mac'te 240, Windows'ta 241".
+  //
+  // Çözüm: pencereyi biraz geriden başlat. Upsert'ler idempotent (LWW), aynı
+  // satırı tekrar almak zararsız — sadece birkaç satırlık fazladan iş.
+  const OVERLAP_MS = 2 * 60 * 1000;
+  const base = lastPulled || EPOCH0;
+  let since = base;
+  if (deepPullPending) {
+    // 24 saatte bir TAM tur: eski kaçmış satırlar da onarılsın.
+    since = EPOCH0;
+  } else if (lastPulled) {
+    const t = Date.parse(lastPulled);
+    if (Number.isFinite(t)) since = new Date(t - OVERLAP_MS).toISOString();
+  }
   let applied = 0;
 
   for (;;) {
@@ -489,8 +518,27 @@ export async function syncNow(mode: "full" | "push" | "pull" = "full"): Promise<
       }
     }
     if (mode !== "push") {
+      // Derin onarım zamanı geldi mi? (yalnız tam turda)
+      deepPullPending = false;
+      if (mode === "full") {
+        try {
+          const last = Number((await loadSettings())[DEEP_PULL_KEY] ?? 0);
+          deepPullPending = !Number.isFinite(last) || Date.now() - last > DEEP_PULL_EVERY_MS;
+        } catch {
+          deepPullPending = false;
+        }
+      }
       for (const spec of TABLES) {
         pulled += await guard(`${spec.name} pull`, () => pullTable(spec, userId));
+      }
+      if (deepPullPending) {
+        deepPullPending = false;
+        try {
+          await setSetting(DEEP_PULL_KEY, String(Date.now()));
+          console.info("[resonance] senkron: derin onarım turu tamamlandı");
+        } catch {
+          /* damga yazılamadıysa bir dahaki turda yine denenir */
+        }
       }
     }
 

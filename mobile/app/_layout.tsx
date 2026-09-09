@@ -1,3 +1,10 @@
+import { Archivo_700Bold, Archivo_800ExtraBold } from "@expo-google-fonts/archivo";
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from "@expo-google-fonts/inter";
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+} from "@expo-google-fonts/jetbrains-mono";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
@@ -28,6 +35,17 @@ import { useSettingsStore } from "../src/store/useSettingsStore";
 export default function RootLayout() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  // Archivo = başlık sesi, Inter = gövde (masaüstüyle ortak),
+  // JetBrains Mono = veri (karma, süre, gerekçe).
+  const [fontsReady] = useFonts({
+    Archivo_700Bold,
+    Archivo_800ExtraBold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+  });
 
   useEffect(() => {
     (async () => {
@@ -66,7 +84,7 @@ export default function RootLayout() {
     );
   }
 
-  if (!ready) {
+  if (!ready || !fontsReady) {
     return (
       <View className="flex-1 items-center justify-center bg-bg">
         <ActivityIndicator color="#e0a33c" />

@@ -25,6 +25,20 @@ module.exports = {
         "down-dim": "#9a4537",
       },
       borderRadius: { DEFAULT: "8px" },
+      // Tipografi rolleri: masaüstü Inter + JetBrains Mono kullanıyor (marka
+      // devamlılığı). Mobil bunlara ARCHIVO'yu ekliyor: Inter bir arayüz
+      // yazı tipi, 30 punto başlıkta "ayarlar ekranı" gibi duruyor; Archivo'nun
+      // geniş gövdesi ve düz sonlanmaları telefonda afiş boyutunu taşıyor.
+      fontFamily: {
+        display: ["Archivo_700Bold"],
+        "display-black": ["Archivo_800ExtraBold"],
+        sans: ["Inter_400Regular"],
+        medium: ["Inter_500Medium"],
+        semibold: ["Inter_600SemiBold"],
+        // Sayı ve etiketler (karma, süre, gerekçe) veri → tek genişlik.
+        mono: ["JetBrainsMono_400Regular"],
+        "mono-medium": ["JetBrainsMono_500Medium"],
+      },
     },
   },
   plugins: [],

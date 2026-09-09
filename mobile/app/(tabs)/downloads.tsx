@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
 
+import { Eyebrow, TrackRow } from "../../src/components/TrackRow";
 import { getDb } from "../../src/lib/db";
 import { pruneCache } from "../../src/lib/downloads";
 import { useDownloadStore } from "../../src/store/useDownloadStore";
@@ -11,13 +12,14 @@ interface CacheRow {
   track_id: string;
   title: string;
   artist: string;
+  thumbnail: string | null;
   bytes: number;
   downloaded: number;
 }
 
 const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 
-/** İndirilenler — offline çalınabilir parçalar, iniş durumu ve kota. */
+/** İndirilenler — çevrimdışı çalınabilir parçalar, iniş durumu ve kota. */
 export default function Downloads() {
   const [rows, setRows] = useState<CacheRow[]>([]);
   const jobs = useDownloadStore((s) => s.jobs);
@@ -27,7 +29,7 @@ export default function Downloads() {
     const db = await getDb();
     setRows(
       await db.select<CacheRow[]>(
-        `SELECT c.track_id, t.title, t.artist, c.bytes, c.downloaded
+        `SELECT c.track_id, t.title, t.artist, t.thumbnail, c.bytes, c.downloaded
          FROM cache c JOIN tracks t ON t.id = c.track_id
          ORDER BY c.downloaded DESC, c.last_played DESC`
       )
@@ -43,29 +45,34 @@ export default function Downloads() {
   const total = rows.reduce((sum, r) => sum + r.bytes, 0);
   const limitBytes = limitGb * 1024 * 1024 * 1024;
   const active = Object.values(jobs).filter((j) => j.status !== "bitti");
+  const ratio = limitBytes ? Math.min(1, total / limitBytes) : 0;
 
   return (
-    <View className="flex-1 bg-bg px-4 pt-4">
-      <Text className="text-faint text-xs">
-        {rows.length} parça · {mb(total)} / {limitGb} GB
-      </Text>
-      <View className="mt-2 h-1 w-full rounded bg-surface-3">
+    <View className="flex-1 bg-bg px-5">
+      <Eyebrow>{`${rows.length} parça · ${mb(total)} / ${limitGb} GB`}</Eyebrow>
+      <View className="mt-2 h-[2px] w-full bg-surface-3">
         <View
-          className={`h-1 rounded ${total > limitBytes ? "bg-down" : "bg-accent"}`}
-          style={{ width: `${Math.min(100, limitBytes ? (total / limitBytes) * 100 : 0)}%` }}
+          className={`h-[2px] ${total > limitBytes ? "bg-down" : "bg-accent"}`}
+          style={{ width: `${ratio * 100}%` }}
         />
       </View>
 
       {active.length ? (
         <View className="mt-4">
           {active.map((job) => (
-            <View key={job.track.id} className="mb-2 rounded-lg bg-surface-2 px-3 py-2">
-              <Text className="text-text text-sm" numberOfLines={1}>
+            <View key={job.track.id} className="mb-2">
+              <Text className="text-text text-[13px]" numberOfLines={1}>
                 {job.track.title}
               </Text>
-              <Text className={job.status === "hata" ? "text-down text-xs" : "text-muted text-xs"}>
+              <Text
+                className={job.status === "hata" ? "text-down text-[10px]" : "text-faint text-[10px]"}
+                style={{ fontFamily: "JetBrainsMono_400Regular" }}
+              >
                 {job.status === "hata" ? job.error : `${job.status} · %${Math.round(job.progress * 100)}`}
               </Text>
+              <View className="mt-1 h-[2px] w-full bg-surface-3">
+                <View className="h-[2px] bg-accent-dim" style={{ width: `${job.progress * 100}%` }} />
+              </View>
             </View>
           ))}
         </View>
@@ -74,39 +81,35 @@ export default function Downloads() {
       <FlatList
         data={rows}
         keyExtractor={(r) => r.track_id}
-        className="mt-4"
+        className="mt-3 -mx-3"
+        contentContainerStyle={{ paddingBottom: 20 }}
         ListEmptyComponent={
-          <Text className="text-muted mt-8 text-sm">
-            Henüz indirilmiş parça yok. “Şu An” ekranındaki ⬇ ile çalan şarkıyı indir —
-            indirilen parça çevrimdışı da çalar, veri harcamaz.
+          <Text className="text-muted mt-10 px-4 text-sm leading-5">
+            İndirilmiş parça yok. Şu An ekranındaki “İndir” çevrimdışı çalmak için saklar;
+            sıradaki parça zaten Wi-Fi'dayken kendiliğinden inip hazır bekler.
           </Text>
         }
         renderItem={({ item }) => (
-          <View className="mb-2 flex-row items-center justify-between rounded-lg bg-surface px-3 py-3">
-            <View className="flex-1 pr-3">
-              <Text className="text-text text-sm" numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text className="text-muted text-xs" numberOfLines={1}>
-                {item.artist}
-              </Text>
-            </View>
-            <Text className={item.downloaded ? "text-accent text-xs" : "text-faint text-xs"}>
-              {mb(item.bytes)}
-            </Text>
-          </View>
+          <TrackRow
+            title={item.title}
+            artist={item.artist}
+            thumbnail={item.thumbnail ?? undefined}
+            meta={mb(item.bytes)}
+            note={item.downloaded ? "kalıcı" : "önbellek · kota dolunca silinebilir"}
+          />
         )}
         ListFooterComponent={
           rows.length ? (
             <Pressable
               onPress={async () => {
-                // Kalıcı indirilenler korunur; yalnız geçici önbellek budanır.
                 await pruneCache(limitBytes);
                 await load();
               }}
-              className="mt-4 items-center rounded-lg bg-surface-2 py-3"
+              className="mx-3 mt-4 items-center rounded border border-border py-3"
             >
-              <Text className="text-text text-sm">Kotaya göre buda</Text>
+              <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                Kotaya göre buda
+              </Text>
             </Pressable>
           ) : null
         }

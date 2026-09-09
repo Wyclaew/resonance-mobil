@@ -1,18 +1,25 @@
-import { Image } from "expo-image";
 import { useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 
 import * as Extractor from "../../modules/resonance-extractor";
 import { useAddToPlaylist } from "../../src/components/AddToPlaylistSheet";
+import { TrackRow } from "../../src/components/TrackRow";
 import { isLikelySong } from "../../src/lib/recommender";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
+import { COLORS } from "../../src/theme";
 import type { Track } from "../../src/types";
+
+const mmss = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "";
+};
 
 export default function Search() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
 
   async function run() {
     if (!query.trim()) return;
@@ -20,9 +27,9 @@ export default function Search() {
     setError(null);
     try {
       const found = await Extractor.search(query.trim(), 25, true);
-      // Müzik-dışı içerik filtresi masaüstüyle AYNI fonksiyondan geçer
-      // (podcast/röportaj/mix elemesi — CLAUDE.md `isLikelySong`).
+      // Podcast/röportaj/mix elemesi masaüstüyle AYNI fonksiyondan geçer.
       setResults(found.filter(isLikelySong));
+      setSearched(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -31,52 +38,56 @@ export default function Search() {
   }
 
   return (
-    <View className="flex-1 bg-bg px-4 pt-16">
-      <TextInput
-        value={query}
-        onChangeText={setQuery}
-        onSubmitEditing={run}
-        placeholder="Şarkı veya sanatçı ara"
-        placeholderTextColor="#5e5e64"
-        returnKeyType="search"
-        className="rounded-lg border border-border bg-surface px-4 py-3 text-text"
-      />
+    <View className="flex-1 bg-bg">
+      <View className="px-5">
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          onSubmitEditing={run}
+          placeholder="şarkı ya da sanatçı"
+          placeholderTextColor={COLORS.faint}
+          returnKeyType="search"
+          selectionColor={COLORS.accent}
+          className="h-11 rounded border border-border bg-surface px-4 text-text"
+          style={{ fontFamily: "Inter_400Regular" }}
+        />
+      </View>
 
-      {busy ? <ActivityIndicator color="#e0a33c" className="mt-6" /> : null}
-      {error ? <Text className="text-down mt-4 text-sm">{error}</Text> : null}
+      {busy ? <ActivityIndicator color={COLORS.accent} className="mt-8" /> : null}
+      {error ? <Text className="text-down mt-4 px-5 text-xs">{error}</Text> : null}
 
       <FlatList
         data={results}
         keyExtractor={(item) => item.id}
-        className="mt-4"
+        className="mt-2"
+        contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={
+          busy ? null : (
+            <Text className="text-muted mt-10 px-4 text-sm leading-5">
+              {searched
+                ? "Sonuç yok. Başka bir yazımla dene."
+                : "YouTube Music'te ara. Bulduğunu çal ya da ＋ ile bir listeye ekle — listeye ekleme öneri motorunu da besler."}
+            </Text>
+          )
+        }
         renderItem={({ item }) => (
-          <Pressable
+          <TrackRow
+            title={item.title}
+            artist={item.artist}
+            thumbnail={item.thumbnail}
+            meta={mmss(item.durationMs)}
             onPress={() => usePlayerStore.getState().playNow(item, results)}
-            className="mb-2 flex-row items-center gap-3 rounded-lg bg-surface px-3 py-2"
-          >
-            <Image
-              source={{ uri: item.thumbnail }}
-              style={{ width: 44, height: 44, borderRadius: 6, backgroundColor: "#1c1c1f" }}
-              contentFit="cover"
-            />
-            <View className="flex-1">
-              <Text className="text-text text-sm" numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text className="text-muted text-xs" numberOfLines={1}>
-                {item.artist}
-              </Text>
-            </View>
-            {/* Listeye ekleme yalnız düzenleme değil, ÖĞRENME sinyali —
-                `artistAffinity`'yi besler (bkz. AddToPlaylistSheet). */}
-            <Pressable
-              hitSlop={10}
-              onPress={() => useAddToPlaylist.getState().open(item)}
-              className="px-2"
-            >
-              <Text className="text-muted text-lg">＋</Text>
-            </Pressable>
-          </Pressable>
+            right={
+              <Pressable
+                hitSlop={12}
+                onPress={() => useAddToPlaylist.getState().open(item)}
+                className="h-8 w-8 items-center justify-center rounded-full border border-border"
+              >
+                <Text className="text-muted text-sm">＋</Text>
+              </Pressable>
+            }
+          />
         )}
       />
     </View>

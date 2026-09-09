@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text } from "react-native";
 
 import { blockArtist, isBlocked, loadBlockedArtists, unblockArtist } from "../lib/blocked";
 import { PREF_LESS, PREF_MORE, PREF_NORMAL, loadArtistPrefs, prefWeight, setArtistPref } from "../lib/prefs";
@@ -13,7 +13,14 @@ import { useToastStore } from "../store/useToastStore";
  *   arayüzde ŞART diyor — PC'de engellediğin sanatçı telefonda da gelmemeli,
  *   ve telefonda engellediğin PC'de.
  */
-export function ArtistActions({ artist }: { artist: string }) {
+export function ArtistActions({
+  artist,
+  children,
+}: {
+  artist: string;
+  /** Aynı satırda gösterilecek ek eylemler (indir, uyku). */
+  children?: React.ReactNode;
+}) {
   const [weight, setWeight] = useState(PREF_NORMAL);
   const [blocked, setBlocked] = useState(false);
   const show = useToastStore((s) => s.show);
@@ -59,12 +66,20 @@ export function ArtistActions({ artist }: { artist: string }) {
     show(`${artist} bir daha önerilmeyecek`, "info");
   }
 
+  // Tek satır, yatay kaydırmalı: sanatçı kararları + çalma eylemleri aynı
+  // düzlemde durur, ekranın altı kalabalıklaşmaz.
   return (
-    <View className="mt-3 flex-row items-center justify-center gap-2">
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      className="mt-5 max-h-9"
+      contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+    >
       <Chip label="Daha çok" active={weight === PREF_MORE} onPress={() => apply(PREF_MORE)} />
       <Chip label="Daha az" active={weight === PREF_LESS} onPress={() => apply(PREF_LESS)} />
       <Chip label={blocked ? "Engelli" : "Önerme"} active={blocked} danger onPress={toggleBlock} />
-    </View>
+      {children}
+    </ScrollView>
   );
 }
 
@@ -79,10 +94,16 @@ function Chip({
   danger?: boolean;
   onPress: () => void;
 }) {
-  const bg = active ? (danger ? "bg-down-dim" : "bg-accent-dim") : "bg-surface-2";
+  const border = active ? (danger ? "border-down" : "border-accent-dim") : "border-border";
+  const tint = active ? (danger ? "text-down" : "text-accent") : "text-muted";
   return (
-    <Pressable onPress={onPress} className={`h-8 justify-center rounded-full px-3 ${bg}`}>
-      <Text className={active ? "text-text text-xs font-semibold" : "text-muted text-xs"}>{label}</Text>
+    <Pressable
+      onPress={onPress}
+      className={`h-8 justify-center rounded-full border px-3 ${border} ${active ? "bg-surface-2" : ""}`}
+    >
+      <Text className={`${tint} text-[11px]`} style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
