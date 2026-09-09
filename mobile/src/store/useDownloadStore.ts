@@ -17,7 +17,12 @@ export interface DownloadJob {
 
 interface DownloadState {
   jobs: Record<string, DownloadJob>;
-  enqueue: (track: Track) => Promise<void>;
+  /**
+   * `permanent` false ise dosya LRU budamasına AÇIK kalır — ön indirme
+   * (spekülatif) böyle yapılır, kullanıcının açıkça indirdiği korunur.
+   * `speculative` true ise hata sessizdir: kullanıcı istemedi, rahatsız etme.
+   */
+  enqueue: (track: Track, opts?: { permanent?: boolean; speculative?: boolean }) => Promise<void>;
 }
 
 /**
@@ -28,17 +33,28 @@ interface DownloadState {
  * bedava, burada değil (MOBILE.md §1).
  */
 let running = false;
-const pending: Track[] = [];
+interface PendingItem {
+  track: Track;
+  permanent: boolean;
+  speculative: boolean;
+}
+const pending: PendingItem[] = [];
 
 export const useDownloadStore = create<DownloadState>((set, get) => ({
   jobs: {},
 
-  enqueue: async (track) => {
-    if (get().jobs[track.id]?.status === "iniyor") return;
+  enqueue: async (track, opts = {}) => {
+    const existing = get().jobs[track.id];
+    if (existing?.status === "iniyor" || existing?.status === "bitti") return;
+    if (pending.some((p) => p.track.id === track.id)) return;
     set((s) => ({
       jobs: { ...s.jobs, [track.id]: { track, progress: 0, status: "bekliyor" } },
     }));
-    pending.push(track);
+    pending.push({
+      track,
+      permanent: opts.permanent ?? true,
+      speculative: opts.speculative ?? false,
+    });
     void drain(set, get);
   },
 }));
@@ -51,18 +67,20 @@ async function drain(
   running = true;
   try {
     while (pending.length) {
-      const track = pending.shift()!;
+      const { track, permanent, speculative } = pending.shift()!;
       const update = (patch: Partial<DownloadJob>) =>
         set((s) => ({
           jobs: { ...s.jobs, [track.id]: { ...s.jobs[track.id], ...patch } },
         }));
 
       // ⭐ Veri kotası: varsayılan olarak yalnız Wi-Fi'da indir (MOBILE.md §1).
-      if (getMobileSettings().wifiOnly) {
+      // Ön indirme HER ZAMAN yalnız Wi-Fi'da: kullanıcı istemediği bir dosya
+      // için mobil veri harcanmaz (MOBILE.md §7).
+      if (getMobileSettings().wifiOnly || speculative) {
         const state = await Network.getNetworkStateAsync();
         if (state.type !== Network.NetworkStateType.WIFI) {
           update({ status: "hata", error: "Wi-Fi bekleniyor" });
-          useToastStore.getState().show("Wi-Fi yokken indirme kapalı", "info");
+          if (!speculative) useToastStore.getState().show("Wi-Fi yokken indirme kapalı", "info");
           continue;
         }
       }
@@ -70,7 +88,7 @@ async function drain(
       update({ status: "iniyor", progress: 0 });
       try {
         await downloadTrack(track, {
-          permanent: true,
+          permanent,
           onProgress: (p) => update({ progress: p.ratio }),
         });
         update({ status: "bitti", progress: 1 });
@@ -81,7 +99,9 @@ async function drain(
         if (removed) console.log(`[indirme] LRU budama: ${removed} dosya silindi`);
       } catch (e) {
         update({ status: "hata", error: e instanceof Error ? e.message : String(e) });
-        useToastStore.getState().show("İndirilemedi: " + (e instanceof Error ? e.message : e), "error");
+        if (!speculative) {
+          useToastStore.getState().show("İndirilemedi: " + (e instanceof Error ? e.message : e), "error");
+        }
       }
     }
   } finally {

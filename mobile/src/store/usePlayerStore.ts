@@ -4,8 +4,10 @@ import { create } from "zustand";
 import { playTrack } from "../audio/player";
 import * as Extractor from "../../modules/resonance-extractor";
 import type { RemoteQueue } from "../lib/deviceQueue";
+import { cachedPath } from "../lib/downloads";
 import { getRecommendations, songCore, type Recommendation } from "../lib/recommender";
 import type { QueueItem, Track } from "../types";
+import { useDownloadStore } from "./useDownloadStore";
 import { useSettingsStore } from "./useSettingsStore";
 
 /**
@@ -90,6 +92,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       await playTrack(track);
       if (mine !== token) return; // geç dönen eski çağrı — durumu bozma
       set({ loading: false });
+      void prefetchNext(get);
     } catch (e) {
       if (mine !== token) return;
       // ⛔ "Yükleniyor"da ASILI KALMA (CLAUDE.md v1.8.8): hata olunca durumu
@@ -252,5 +255,26 @@ async function refillDiscovery(set: Setter, get: () => PlayerState): Promise<voi
     console.warn("[keşfet] kuyruk tazelenemedi:", e);
   } finally {
     refilling = false;
+  }
+}
+
+/**
+ * ⭐ SIRADAKİNİ ÖNDEN İNDİR — yalnız Wi-Fi'da, yalnız bir parça.
+ *
+ * Neden değerli: ölçümde hazır olma süresinin %70'i adres çözümü + indirme.
+ * Sıradaki hazırsa geçiş anlık olur ve şebeke koparsa müzik kesilmez.
+ * Neden muhafazakâr: spekülatif indirme kullanıcının istemediği veriyi harcar
+ * → mobil veride ASLA, ve dosya `permanent:false` ile LRU'ya açık kalır.
+ */
+async function prefetchNext(get: () => PlayerState): Promise<void> {
+  try {
+    if (!useSettingsStore.getState().prefetchEnabled) return;
+    const { queue, index } = get();
+    const next = queue[index + 1];
+    if (!next) return;
+    if (await cachedPath(next.id)) return; // zaten diskte
+    await useDownloadStore.getState().enqueue(next, { permanent: false, speculative: true });
+  } catch (e) {
+    console.warn("[prefetch] sıradaki hazırlanamadı:", e);
   }
 }
