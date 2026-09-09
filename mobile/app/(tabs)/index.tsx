@@ -4,6 +4,7 @@ import { Pressable, Text, View } from "react-native";
 import TrackPlayer, { useProgress, usePlaybackState, State } from "react-native-track-player";
 
 import { togglePlay } from "../../src/audio/player";
+import { ContinueBanner } from "../../src/components/ContinueBanner";
 import { voteCurrent } from "../../src/lib/vote";
 import { useDownloadStore } from "../../src/store/useDownloadStore";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
@@ -30,10 +31,13 @@ export default function NowPlaying() {
 
   if (!current) {
     return (
-      <View className="flex-1 items-center justify-center bg-bg px-8">
-        <Text className="text-muted text-center text-sm">
-          Henüz bir şey çalmıyor. “Ara” sekmesinden bir şarkı seç.
-        </Text>
+      <View className="flex-1 bg-bg px-6 pt-6">
+        <ContinueBanner />
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-muted text-center text-sm">
+            Henüz bir şey çalmıyor. “Ara” sekmesinden bir şarkı seç.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -43,7 +47,8 @@ export default function NowPlaying() {
   const votable = !!current.playlistId;
 
   return (
-    <View className="flex-1 bg-bg px-6 pt-16">
+    <View className="flex-1 bg-bg px-6 pt-6">
+      <ContinueBanner />
       <View className="aspect-square w-full overflow-hidden rounded-lg bg-surface-2">
         {current.thumbnail ? (
           <Image source={{ uri: current.thumbnail }} style={{ flex: 1 }} contentFit="cover" />

@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import { playTrack } from "../audio/player";
 import * as Extractor from "../../modules/resonance-extractor";
+import type { RemoteQueue } from "../lib/deviceQueue";
 import { getRecommendations, songCore, type Recommendation } from "../lib/recommender";
 import type { QueueItem, Track } from "../types";
 import { useSettingsStore } from "./useSettingsStore";
@@ -35,6 +36,8 @@ interface PlayerState {
   rerollDiscovery: () => Promise<void>;
   /** Kaynak koptuğunda aynı parçayı kaldığı saniyeden yeniden bağlar. */
   resumeCurrent: (fromSeconds: number) => Promise<void>;
+  /** ⭐ Çapraz cihaz devam: PC'deki kuyruğu DURAKLATILMIŞ kurar. */
+  adoptRemoteQueue: (remote: RemoteQueue) => Promise<void>;
 }
 
 /** Keşfet oturumunun sanal liste kimliği — masaüstüyle AYNI değer. */
@@ -104,6 +107,35 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (discovery && nextIndex >= queue.length - 2) void refillDiscovery(set, get);
     if (nextIndex >= queue.length) return;
     await get().playNow(queue[nextIndex], queue, queue[nextIndex].playlistId);
+  },
+
+  adoptRemoteQueue: async (remote) => {
+    if (!remote.queue.length) return;
+    const mine = ++token;
+    const index = Math.min(Math.max(0, remote.queueIndex), remote.queue.length - 1);
+    // Kuyruk uzaktan geldiği gibi kurulur; uid'ler yeniden üretilmez ki
+    // masaüstündeki sırayla birebir aynı kalsın.
+    set({
+      queue: remote.queue,
+      index,
+      current: remote.queue[index],
+      discovery: remote.mode === "discovery",
+      discoverySeedArtists: remote.seeds,
+      discoveryFilters: remote.filters,
+      loading: true,
+      error: null,
+    });
+    try {
+      await playTrack(remote.queue[index], {
+        startSeconds: Math.floor(remote.positionMs / 1000),
+        autoplay: false,
+      });
+      if (mine !== token) return;
+      set({ loading: false });
+    } catch (e) {
+      if (mine !== token) return;
+      set({ loading: false, error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   resumeCurrent: async (fromSeconds) => {

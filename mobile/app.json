@@ -45,6 +45,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.resonance.mobile"
     }
   }
 }

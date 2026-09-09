@@ -80,7 +80,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 export async function playTrack(
   track: Track,
-  opts: { preferSmall?: boolean; startSeconds?: number } = {}
+  opts: { preferSmall?: boolean; startSeconds?: number; autoplay?: boolean } = {}
 ): Promise<void> {
   await setupAudio();
   const { url, local } = await withTimeout(sourceFor(track, opts), 20_000, "adres çözümü");
@@ -94,6 +94,12 @@ export async function playTrack(
     duration: track.durationMs > 0 ? track.durationMs / 1000 : undefined,
   });
   if (opts.startSeconds && opts.startSeconds > 0) await TrackPlayer.seekTo(opts.startSeconds);
+  // Çapraz cihaz devamında kuyruk DURAKLATILMIŞ kurulur (MOBILE.md §5.1):
+  // telefon cebindeyken kendiliğinden çalmaya başlamamalı.
+  if (opts.autoplay === false) {
+    console.log(`[audio] hazır (duraklatılmış): ${track.title}`);
+    return;
+  }
   await TrackPlayer.play();
   console.log(`[audio] çalıyor: ${track.title} (${local ? "yerel dosya" : "akış"})`);
 }

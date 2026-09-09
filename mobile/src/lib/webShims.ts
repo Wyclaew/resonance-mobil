@@ -70,9 +70,16 @@ export function installWebShims(): void {
 
   // `navigator.language` RN'de yok; kopyalanan `i18n.ts` arayüz dilini bununla
   // seçiyor (`detectLang`) ve dokunulmadığında HER ZAMAN "en" düşüyordu.
-  const nav = (g.navigator ?? {}) as { language?: string };
+  const nav = (g.navigator ?? {}) as { language?: string; userAgent?: string };
   if (!nav.language) {
     nav.language = Localization.getLocales()[0]?.languageTag ?? "tr-TR";
+    g.navigator = nav;
+  }
+  // `nowPlaying.ts` / `deviceQueue.ts` cihaz adını userAgent'tan çıkarıyor
+  // (bu ad SENKRONLANIR ve masaüstünde "hangi cihazda bıraktım" diye görünür).
+  // RN'de userAgent yok → "Device" yazardı.
+  if (!nav.userAgent) {
+    nav.userAgent = "Resonance Mobile (Android)";
     g.navigator = nav;
   }
 
