@@ -8,6 +8,7 @@ import TrackPlayer, {
 
 import * as Extractor from "../../modules/resonance-extractor";
 import { cachedPath } from "../lib/downloads";
+import { findAlternative, isUnavailable } from "../lib/relink";
 import { bestThumb } from "../lib/thumbs";
 import type { Track } from "../types";
 
@@ -71,7 +72,19 @@ export async function sourceFor(
 ): Promise<{ url: string; local: boolean }> {
   const local = await cachedPath(track.id);
   if (local) return { url: local, local: true };
-  const info = await Extractor.resolve(track.sourceId);
+
+  let info;
+  try {
+    info = await Extractor.resolve(track.sourceId);
+  } catch (e) {
+    // Video silinmiş/engellenmişse parçayı ÖLDÜRME: aynı şarkının başka
+    // yüklemesini bul ve kalıcı olarak ona bağlan (lib/relink.ts).
+    if (!isUnavailable(e)) throw e;
+    const alternative = await findAlternative(track);
+    if (!alternative) throw e;
+    info = await Extractor.resolve(alternative);
+  }
+
   const stream = Extractor.pickStream(info.streams, { preferSmall: opts.preferSmall });
   if (!stream) throw new Error("çalınabilir ses akışı yok");
   return { url: stream.url, local: false };
