@@ -1,6 +1,7 @@
 import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { router } from "expo-router";
 import TrackPlayer, { State, usePlaybackState, useProgress } from "react-native-track-player";
 
 import { togglePlay } from "../../src/audio/player";
@@ -174,6 +175,7 @@ export default function NowPlaying() {
             onPress={askSleep}
           />
           <Chip label="Sözler" active={showLyrics} onPress={() => setShowLyrics((v) => !v)} />
+          <Chip label={`Sıra · ${queue.length}`} onPress={() => router.push("/queue")} />
           <DevicePicker />
         </ArtistActions>
 
@@ -181,7 +183,9 @@ export default function NowPlaying() {
 
         {upNext.length ? (
           <View className="mt-8">
-            <Eyebrow>Sıradaki</Eyebrow>
+            <Pressable onPress={() => router.push("/queue")}>
+              <Eyebrow>{`Sıradaki · tümü (${queue.length})`}</Eyebrow>
+            </Pressable>
             <View className="mt-1">
               {upNext.map((item) => (
                 <TrackRow

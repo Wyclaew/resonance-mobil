@@ -44,6 +44,11 @@ interface PlayerState {
   resumeCurrent: (fromSeconds: number) => Promise<void>;
   /** ⭐ Çapraz cihaz devam: PC'deki kuyruğu DURAKLATILMIŞ kurar. */
   adoptRemoteQueue: (remote: RemoteQueue) => Promise<void>;
+  /**
+   * Karma karışık: listeyi rastgele değil, SEVDİKLERİN ÖNE gelecek şekilde
+   * karıştırır (masaüstündeki `startSmartShuffle`).
+   */
+  startSmartShuffle: (tracks: (Track & { karma?: number })[], playlistId: string) => Promise<void>;
 }
 
 /** Keşfet oturumunun sanal liste kimliği — masaüstüyle AYNI değer. */
@@ -114,6 +119,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (discovery && nextIndex >= queue.length - 2) void refillDiscovery(set, get);
     if (nextIndex >= queue.length) return;
     await get().playNow(queue[nextIndex], queue, queue[nextIndex].playlistId);
+  },
+
+  startSmartShuffle: async (tracks, playlistId) => {
+    if (!tracks.length) return;
+    const ordered = weightedShuffle(tracks);
+    await get().playNow(ordered[0], ordered, playlistId);
   },
 
   adoptRemoteQueue: async (remote) => {
@@ -191,6 +202,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 }));
 
+
+/**
+ * Karma ağırlıklı karıştırma — masaüstüyle AYNI formül: ağırlık = 1 + karma*0.6
+ * (taban 0.12), sıra anahtarı `-ln(rastgele)/ağırlık` (Gumbel). Yüksek karma
+ * SIK ama garanti değil; downvote'lu parça listede kalır, arkaya düşer.
+ */
+function weightedShuffle<T extends { karma?: number }>(tracks: T[]): T[] {
+  return tracks
+    .map((t) => ({ t, key: -Math.log(Math.random() || 1e-9) / Math.max(0.12, 1 + (t.karma ?? 0) * 0.6) }))
+    .sort((a, b) => a.key - b.key)
+    .map((x) => x.t);
+}
 
 // ── Keşfet yardımcıları ────────────────────────────────────────────────────
 

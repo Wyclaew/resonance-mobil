@@ -54,14 +54,25 @@ export default function PlaylistDetail() {
       <View className="flex-row items-center justify-between px-5 pb-1">
         <Eyebrow>{`${tracks.length} parça · ${hours ? `${hours} sa ` : ""}${minutes} dk`}</Eyebrow>
         {tracks.length ? (
-          <Pressable
-            onPress={() => usePlayerStore.getState().playNow(tracks[0], tracks, id)}
-            className="h-8 justify-center rounded-full border border-accent-dim px-3"
-          >
-            <Text className="text-accent text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
-              Baştan çal
-            </Text>
-          </Pressable>
+          <View className="flex-row gap-2">
+            <Pressable
+              onPress={() => usePlayerStore.getState().playNow(tracks[0], tracks, id)}
+              className="h-8 justify-center rounded-full border border-border px-3"
+            >
+              <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                Baştan
+              </Text>
+            </Pressable>
+            {/* Rastgele değil: karması yüksek olan öne gelir. */}
+            <Pressable
+              onPress={() => usePlayerStore.getState().startSmartShuffle(tracks, id)}
+              className="h-8 justify-center rounded-full border border-accent-dim px-3"
+            >
+              <Text className="text-accent text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                Karma karışık
+              </Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
 

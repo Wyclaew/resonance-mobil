@@ -55,6 +55,8 @@ export default function Settings() {
 
       <Section title="Kütüphane" />
       <LinkRow label="Dinleme analizi" hint="Ne kadar, ne zaman, kimi dinledin" to="/stats" />
+      <LinkRow label="Zevk profili" hint="Motor seni nasıl görüyor, hangi öneriyi kabul ettin" to="/taste" />
+      <LinkRow label="Yıllık özet" hint="Saatler, sanatçılar, keşifler — paylaşılabilir" to="/wrapped" />
       <LinkRow label="Hesap & senkron" hint="Giriş, senkron durumu, buluttan al" to="/account" />
 
       <Pressable onPress={() => router.back()} className="mb-10 mt-8 items-center py-3">
@@ -124,7 +126,7 @@ function StepperRow({
 
 
 /** Ayarlar içinden ayrı ekranlara geçiş. */
-function LinkRow({ label, hint, to }: { label: string; hint: string; to: "/stats" | "/account" }) {
+function LinkRow({ label, hint, to }: { label: string; hint: string; to: "/stats" | "/account" | "/taste" | "/wrapped" }) {
   return (
     <Pressable
       onPress={() => router.push(to)}
