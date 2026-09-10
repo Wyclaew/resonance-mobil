@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 
 import * as Extractor from "../../modules/resonance-extractor";
 import { useAddToPlaylist } from "../../src/components/AddToPlaylistSheet";
 import { TrackRow } from "../../src/components/TrackRow";
 import { isLikelySong } from "../../src/lib/recommender";
+import { useTrackSheet } from "../../src/components/TrackSheet";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { COLORS } from "../../src/theme";
 import type { Track } from "../../src/types";
@@ -21,21 +22,43 @@ export default function Search() {
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
 
-  async function run() {
-    if (!query.trim()) return;
+  const token = useRef(0);
+
+  async function run(term: string) {
+    const text = term.trim();
+    if (!text) {
+      setResults([]);
+      setSearched(false);
+      return;
+    }
+    const mine = ++token.current;
     setBusy(true);
     setError(null);
     try {
-      const found = await Extractor.search(query.trim(), 25, true);
+      const found = await Extractor.search(text, 25, true);
+      // Yazmaya devam edildiyse eski sonucu YAZMA — geç dönen istek listeyi
+      // geri almamalı (masaüstündeki stale-token dersi).
+      if (mine !== token.current) return;
       // Podcast/röportaj/mix elemesi masaüstüyle AYNI fonksiyondan geçer.
       setResults(found.filter(isLikelySong));
       setSearched(true);
     } catch (e) {
+      if (mine !== token.current) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (mine === token.current) setBusy(false);
     }
   }
+
+  /**
+   * Yazarken ara — Enter'a basmak gerekmiyor. 450 ms bekleme, her harfte
+   * YouTube'a gitmemek için: hem hız hem veri (mobil şebeke).
+   */
+  useEffect(() => {
+    const id = setTimeout(() => void run(query), 450);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   return (
     <View className="flex-1 bg-bg">
@@ -43,8 +66,8 @@ export default function Search() {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          onSubmitEditing={run}
-          placeholder="şarkı ya da sanatçı"
+          onSubmitEditing={() => void run(query)}
+          placeholder="yazmaya başla — kendi arar"
           placeholderTextColor={COLORS.faint}
           returnKeyType="search"
           selectionColor={COLORS.accent}
@@ -77,6 +100,7 @@ export default function Search() {
             artist={item.artist}
             thumbnail={item.thumbnail}
             meta={mmss(item.durationMs)}
+            onLongPress={() => useTrackSheet.getState().open(item)}
             onPress={() => usePlayerStore.getState().playNow(item, results)}
             right={
               <Pressable

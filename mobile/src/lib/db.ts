@@ -44,6 +44,8 @@ async function open(): Promise<DbLike> {
   await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   await migrate(db);
 
+  await installSyncGuards(db);
+
   return {
     async select<T>(query: string, bindValues?: unknown[]) {
       return (await db.getAllAsync(query, named(bindValues))) as T;
@@ -78,4 +80,35 @@ async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
 export function getDb(): Promise<DbLike> {
   if (!dbPromise) dbPromise = open();
   return dbPromise;
+}
+
+/**
+ * ⚠️ MOBİLE ÖZEL DAYANIKLILIK (şemayı değiştirmez, yalnız tetikleyici ekler).
+ *
+ * ÖLÇÜLDÜ: senkron çekerken 54 `playlist_tracks` satırı "FOREIGN KEY
+ * constraint failed" ile DÜŞTÜ. Sebep: bu üyeliklerin işaret ettiği parçalar
+ * bulutta yok (masaüstünde var, hiç push edilmemiş). Satır düşünce üyelik
+ * telefona hiç gelmiyor ve kayıp SESSİZ oluyor.
+ *
+ * Çözüm: eksik ebeveyn için yer tutucu bir `tracks` satırı aç (`updated_at=0`
+ * → gerçek satır buluttan gelince ONU ezer, tersi olmaz). Yer tutucular
+ * `repairTracks.ts` tarafından arka planda gerçek meta veriyle doldurulur.
+ */
+async function installSyncGuards(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    CREATE TRIGGER IF NOT EXISTS pt_parent_track
+    BEFORE INSERT ON playlist_tracks
+    FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM tracks WHERE id = NEW.track_id)
+    BEGIN
+      INSERT INTO tracks (id, source, source_id, title, artist, duration_ms, added_at, updated_at)
+      VALUES (
+        NEW.track_id,
+        CASE WHEN instr(NEW.track_id, ':') > 0
+             THEN substr(NEW.track_id, 1, instr(NEW.track_id, ':') - 1) ELSE 'youtube' END,
+        CASE WHEN instr(NEW.track_id, ':') > 0
+             THEN substr(NEW.track_id, instr(NEW.track_id, ':') + 1) ELSE NEW.track_id END,
+        '', '', 0, CAST(strftime('%s','now') AS INTEGER) * 1000, 0
+      );
+    END;
+  `);
 }

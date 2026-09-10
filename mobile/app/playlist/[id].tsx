@@ -4,6 +4,7 @@ import { FlatList, Pressable, Text, View } from "react-native";
 
 import { Eyebrow, TrackRow } from "../../src/components/TrackRow";
 import { getPlaylist, getPlaylistTracks } from "../../src/lib/playlists";
+import { useTrackSheet } from "../../src/components/TrackSheet";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { COLORS } from "../../src/theme";
 import type { PlaylistTrack } from "../../src/types";
@@ -76,6 +77,7 @@ export default function PlaylistDetail() {
             thumbnail={item.thumbnail}
             karma={item.karma}
             meta={mmss(item.durationMs)}
+            onLongPress={() => useTrackSheet.getState().open(item)}
             onPress={() => usePlayerStore.getState().playNow(item, tracks, id)}
           />
         )}

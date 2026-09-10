@@ -53,13 +53,9 @@ export default function Settings() {
         onChange={(v) => settings.update("recLibrary", v)}
       />
 
-      <Section title="Hesap" />
-      <Pressable
-        onPress={() => router.push("/account")}
-        className="mt-2 items-center rounded-lg bg-surface-2 py-3"
-      >
-        <Text className="text-text text-sm">Hesap & senkron</Text>
-      </Pressable>
+      <Section title="Kütüphane" />
+      <LinkRow label="Dinleme analizi" hint="Ne kadar, ne zaman, kimi dinledin" to="/stats" />
+      <LinkRow label="Hesap & senkron" hint="Giriş, senkron durumu, buluttan al" to="/account" />
 
       <Pressable onPress={() => router.back()} className="mb-10 mt-8 items-center py-3">
         <Text className="text-faint text-sm">Kapat</Text>
@@ -123,5 +119,22 @@ function StepperRow({
         </Pressable>
       </View>
     </View>
+  );
+}
+
+
+/** Ayarlar içinden ayrı ekranlara geçiş. */
+function LinkRow({ label, hint, to }: { label: string; hint: string; to: "/stats" | "/account" }) {
+  return (
+    <Pressable
+      onPress={() => router.push(to)}
+      className="mt-3 flex-row items-center justify-between rounded-lg bg-surface px-4 py-3"
+    >
+      <View className="flex-1 pr-3">
+        <Text className="text-text text-sm">{label}</Text>
+        <Text className="text-faint mt-1 text-xs">{hint}</Text>
+      </View>
+      <Text className="text-faint text-base">›</Text>
+    </Pressable>
   );
 }

@@ -5,6 +5,7 @@ import { Eyebrow, TrackRow } from "../../src/components/TrackRow";
 import { DISCOVERY_FILTERS } from "../../src/lib/filters";
 import { t } from "../../src/lib/i18n";
 import { reasonText } from "../../src/lib/recommender";
+import { useTrackSheet } from "../../src/components/TrackSheet";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { useSettingsStore } from "../../src/store/useSettingsStore";
 import { COLORS } from "../../src/theme";
@@ -115,6 +116,7 @@ export default function Discover() {
             thumbnail={item.thumbnail}
             note={item.recReason ? reasonText(item.recReason, lang) : undefined}
             active={i === 0}
+            onLongPress={() => useTrackSheet.getState().open(item)}
             onPress={() => usePlayerStore.getState().playNow(item, upcoming, item.playlistId)}
           />
         )}

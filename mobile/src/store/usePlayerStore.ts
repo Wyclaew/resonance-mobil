@@ -32,8 +32,12 @@ interface PlayerState {
   playNow: (track: QueueSource, queue?: QueueSource[], playlistId?: string) => Promise<void>;
   next: () => Promise<void>;
   previous: () => Promise<void>;
-  /** Keşfet: öneri motorundan yeni parti kurar ve çalmaya başlar. */
-  startDiscovery: (filters?: string[]) => Promise<void>;
+  /**
+   * Keşfet: öneri motorundan yeni parti kurar ve çalmaya başlar.
+   * `lockedSeedArtist` verilirse o sanatçının tohum olma ağırlığı çok artar
+   * ("tarz kilidi") — sanatçı sayfasındaki "Bu tarzda keşfet" bunu kullanır.
+   */
+  startDiscovery: (filters?: string[], lockedSeedArtist?: string) => Promise<void>;
   /** "Başka tarz": mevcut partinin tohum sanatçılarını dışlayıp yeniden kurar. */
   rerollDiscovery: () => Promise<void>;
   /** Kaynak koptuğunda aynı parçayı kaldığı saniyeden yeniden bağlar. */
@@ -151,10 +155,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
-  startDiscovery: async (filters) => {
+  startDiscovery: async (filters, lockedSeedArtist) => {
     set({ loading: true, error: null, discoveryFilters: filters ?? [] });
     try {
-      const recs = await fetchDiscovery(filters ?? [], new Set());
+      const recs = await fetchDiscovery(filters ?? [], new Set(), lockedSeedArtist);
       if (!recs.length) throw new Error("öneri bulunamadı — biraz dinle/oy ver, havuz dolsun");
       await startBatch(set, get, recs);
     } catch (e) {
@@ -192,13 +196,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
 async function fetchDiscovery(
   filters: string[],
-  excludeSeedArtists: Set<string>
+  excludeSeedArtists: Set<string>,
+  lockedSeedArtist?: string
 ): Promise<Recommendation[]> {
   const s = useSettingsStore.getState();
   return getRecommendations({
     playlistId: DISCOVERY_ID,
     filters,
     excludeSeedArtists,
+    lockedSeedArtist,
     excludeIds: new Set(recommendedThisSession),
     excludeCores: new Set(recommendedCoresThisSession),
     limit: TARGET_QUEUE_AHEAD,

@@ -1,5 +1,7 @@
 import TrackPlayer, { Event } from "react-native-track-player";
 
+import { voteCurrent } from "../lib/vote";
+
 /**
  * Arka plan oynatma servisi — kilit ekranı / bildirim / kulaklık tuşları.
  * Masaüstündeki `media_controls.rs` + `audio.rs` olay döngüsünün karşılığı.
@@ -34,6 +36,11 @@ export async function PlaybackService() {
       return TrackPlayer.play();
     });
   });
+  // Kilit ekranı / bildirim oyu — arayüzdeki oyla AYNI yoldan geçer
+  // (`vote.ts`), yoksa oy sessizce öğrenmeye katılmazdı.
+  TrackPlayer.addEventListener(Event.RemoteLike, () => safely("like", () => voteCurrent(1)));
+  TrackPlayer.addEventListener(Event.RemoteDislike, () => safely("dislike", () => voteCurrent(-1)));
+
   TrackPlayer.addEventListener(Event.PlaybackError, (e) => {
     // Sessiz ölüm YOK: hata görünür olsun (masaüstünde "neden çalmıyor" bug'ı
     // aylarca böyle gizlendi).

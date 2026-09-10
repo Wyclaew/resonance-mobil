@@ -1,8 +1,10 @@
 import { Link, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Alert, FlatList, Pressable, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, ScrollView, Text, View } from "react-native";
 
 import { Eyebrow } from "../../src/components/TrackRow";
+import { t } from "../../src/lib/i18n";
+import { SMART_LISTS } from "../../src/lib/smartLists";
 import { getDb } from "../../src/lib/db";
 import { deletePlaylist } from "../../src/lib/playlists";
 import { useToastStore } from "../../src/store/useToastStore";
@@ -58,12 +60,39 @@ export default function Library() {
 
   return (
     <View className="flex-1 bg-bg px-5">
-      <Eyebrow>{`${rows.length} liste · ${trackCount} parça`}</Eyebrow>
+      <View className="flex-row items-center justify-between">
+        <Eyebrow>{`${rows.length} liste · ${trackCount} parça`}</Eyebrow>
+        <Link href="/import" asChild>
+          <Pressable hitSlop={10} className="h-7 justify-center rounded-full border border-border px-3">
+            <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+              İçe aktar
+            </Text>
+          </Pressable>
+        </Link>
+      </View>
+
+      {/* Akıllı listeler: dinleme geçmişinden türer, kalıcı satır yazmaz. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        className="mt-3 max-h-11 grow-0"
+        contentContainerStyle={{ gap: 8 }}
+      >
+        {SMART_LISTS.map((list) => (
+          <Link key={list.id} href={{ pathname: "/smart/[id]", params: { id: list.id } }} asChild>
+            <Pressable className="h-10 justify-center rounded-full border border-border px-4">
+              <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                {t(list.labelKey)}
+              </Text>
+            </Pressable>
+          </Link>
+        ))}
+      </ScrollView>
 
       <FlatList
         data={rows}
         keyExtractor={(r) => r.id}
-        className="mt-3"
+        className="mt-4"
         contentContainerStyle={{ paddingBottom: 24 }}
         ListEmptyComponent={
           <Text className="text-muted mt-10 text-sm leading-5">

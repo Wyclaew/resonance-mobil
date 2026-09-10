@@ -1,12 +1,14 @@
 import TrackPlayer, {
   AppKilledPlaybackBehavior,
   Capability,
+  RatingType,
   RepeatMode,
   State,
 } from "react-native-track-player";
 
 import * as Extractor from "../../modules/resonance-extractor";
 import { cachedPath } from "../lib/downloads";
+import { bestThumb } from "../lib/thumbs";
 import type { Track } from "../types";
 
 let ready = false;
@@ -25,6 +27,11 @@ export async function setupAudio(): Promise<void> {
       // Bildirimden kaydırınca çalma dursun (pil), servis öldürülmesin.
       appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
     },
+    // ⭐ Bildirimden OY: karma bu uygulamanın çekirdeği, kilit ekranından
+    // ulaşılabilir olması gerekir. Başparmak yukarı/aşağı → `vote.ts`.
+    ratingType: RatingType.ThumbsUpDown,
+    likeOptions: { isActive: false, title: "Beğen" },
+    dislikeOptions: { isActive: false, title: "Beğenme" },
     capabilities: [
       Capability.Play,
       Capability.Pause,
@@ -32,6 +39,7 @@ export async function setupAudio(): Promise<void> {
       Capability.SkipToPrevious,
       Capability.SeekTo,
       Capability.Stop,
+      Capability.SetRating,
     ],
     // v5: "compactCapabilities" yerine bildirimde gorunecek yetenekler.
     notificationCapabilities: [
@@ -39,8 +47,11 @@ export async function setupAudio(): Promise<void> {
       Capability.Pause,
       Capability.SkipToNext,
       Capability.SkipToPrevious,
-      Capability.SeekTo,
+      Capability.SetRating,
     ],
+    // Bildirimin vurgu rengi — kapaktan türetilen rastgele renk yerine
+    // uygulamanın kehribarı (Android sürümüne göre yok sayılabilir).
+    color: 0xe0a33c,
     progressUpdateEventInterval: 1,
   });
   await TrackPlayer.setRepeatMode(RepeatMode.Off);
@@ -90,7 +101,8 @@ export async function playTrack(
     url,
     title: track.title,
     artist: track.artist,
-    artwork: track.thumbnail,
+    // Bildirim ve kilit ekranı bu görseli büyütüyor → yüksek çözünürlük iste.
+    artwork: bestThumb(track.thumbnail, 720),
     duration: track.durationMs > 0 ? track.durationMs / 1000 : undefined,
   });
   if (opts.startSeconds && opts.startSeconds > 0) await TrackPlayer.seekTo(opts.startSeconds);

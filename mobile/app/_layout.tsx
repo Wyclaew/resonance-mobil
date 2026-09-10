@@ -13,12 +13,14 @@ import { ActivityIndicator, Text, View } from "react-native";
 import "../global.css";
 import { AddToPlaylistSheet } from "../src/components/AddToPlaylistSheet";
 import { Toasts } from "../src/components/Toasts";
+import { TrackSheet } from "../src/components/TrackSheet";
 import { installAutoAdvance } from "../src/audio/autoAdvance";
 import { installPresence } from "../src/audio/presence";
 import { setupAudio } from "../src/audio/player";
 import { getDb } from "../src/lib/db";
 import { initDeviceId } from "../src/lib/device";
 import { loadMobileSettings } from "../src/lib/mobileSettings";
+import { repairPlaceholderTracks } from "../src/lib/repairTracks";
 import { hydrateLocalStorage, installWebShims } from "../src/lib/webShims";
 import { startSync } from "../src/lib/sync/engine";
 import { useSettingsStore } from "../src/store/useSettingsStore";
@@ -68,6 +70,8 @@ export default function RootLayout() {
         // Senkron arayüzü BEKLETMEZ: giriş yapılmamışsa sessizce çıkar,
         // yapılmışsa arka planda ilk turu atar (docs/SYNC.md tetikleyicileri).
         void startSync().catch((e) => console.error("[sync] başlatılamadı:", e));
+        // Senkron eksik ebeveyn yüzünden yer tutucu açtıysa arka planda doldur.
+        void repairPlaceholderTracks();
       } catch (e) {
         console.error("[boot] açılış hatası:", e);
         setError(e instanceof Error ? e.message : String(e));
@@ -97,6 +101,7 @@ export default function RootLayout() {
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0c0c0d" } }} />
       <AddToPlaylistSheet />
+      <TrackSheet />
       <Toasts />
     </View>
   );

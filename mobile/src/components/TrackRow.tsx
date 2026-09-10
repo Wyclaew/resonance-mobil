@@ -1,6 +1,7 @@
 import { Image } from "expo-image";
 import { Pressable, Text, View } from "react-native";
 
+import { bestThumb } from "../lib/thumbs";
 import { COLORS } from "../theme";
 import { KarmaBar } from "./KarmaBar";
 
@@ -48,7 +49,7 @@ export function TrackRow({
       </View>
 
       <Image
-        source={{ uri: thumbnail }}
+        source={{ uri: bestThumb(thumbnail, 160) }}
         style={{ width: 42, height: 42, borderRadius: 3, backgroundColor: COLORS.surface2 }}
         contentFit="cover"
         transition={120}

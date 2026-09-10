@@ -7,13 +7,15 @@ import { togglePlay } from "../../src/audio/player";
 import { useSleepTimer } from "../../src/audio/sleepTimer";
 import { ArtistActions } from "../../src/components/ArtistActions";
 import { BarMark } from "../../src/components/BarMark";
-import { ContinueBanner } from "../../src/components/ContinueBanner";
+import { DevicePicker } from "../../src/components/DevicePicker";
+import { Lyrics } from "../../src/components/Lyrics";
 import { Eyebrow, TrackRow } from "../../src/components/TrackRow";
 import { reasonText } from "../../src/lib/recommender";
 import { voteCurrent } from "../../src/lib/vote";
 import { useDownloadStore } from "../../src/store/useDownloadStore";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { useSettingsStore } from "../../src/store/useSettingsStore";
+import { bestThumb } from "../../src/lib/thumbs";
 import { COLORS } from "../../src/theme";
 
 function mmss(seconds: number): string {
@@ -29,6 +31,7 @@ export default function NowPlaying() {
   const { width } = useWindowDimensions();
   const [karma, setKarma] = useState(0);
   const [barWidth, setBarWidth] = useState(0);
+  const [showLyrics, setShowLyrics] = useState(false);
   const job = useDownloadStore((st) => (current ? st.jobs[current.id] : undefined));
   const lang = useSettingsStore((st) => st.language);
   const sleepEndsAt = useSleepTimer((st) => st.endsAt);
@@ -41,7 +44,9 @@ export default function NowPlaying() {
   if (!current) {
     return (
       <View className="flex-1 bg-bg px-5 pt-6">
-        <ContinueBanner />
+        <View className="flex-row justify-end">
+          <DevicePicker />
+        </View>
         <View className="flex-1 items-center justify-center">
           <BarMark size={34} color={COLORS.surface3} />
           <Text className="text-muted mt-5 text-center text-sm">
@@ -69,7 +74,7 @@ export default function NowPlaying() {
           taşıyabilsin diye kademeli koyulaşır. */}
       <View style={{ height: art }}>
         <Image
-          source={{ uri: current.thumbnail }}
+          source={{ uri: bestThumb(current.thumbnail, 720) }}
           style={{ width: "100%", height: "100%", backgroundColor: COLORS.surface2 }}
           contentFit="cover"
           transition={220}
@@ -78,8 +83,6 @@ export default function NowPlaying() {
       </View>
 
       <View className="-mt-16 px-5">
-        <ContinueBanner />
-
         <View className="flex-row items-end gap-3">
           <BarMark size={22} alive={playing} />
           <Text
@@ -170,7 +173,11 @@ export default function NowPlaying() {
             active={!!sleepEndsAt}
             onPress={askSleep}
           />
+          <Chip label="Sözler" active={showLyrics} onPress={() => setShowLyrics((v) => !v)} />
+          <DevicePicker />
         </ArtistActions>
+
+        {showLyrics ? <Lyrics track={current} positionMs={progress.position * 1000} /> : null}
 
         {upNext.length ? (
           <View className="mt-8">
