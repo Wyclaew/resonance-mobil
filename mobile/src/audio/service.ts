@@ -1,14 +1,19 @@
 import TrackPlayer, { Event } from "react-native-track-player";
 
 import { voteCurrent } from "../lib/vote";
+import { usePlayerStore } from "../store/usePlayerStore";
 
 /**
  * Arka plan oynatma servisi — kilit ekranı / bildirim / kulaklık tuşları.
- * Masaüstündeki `media_controls.rs` + `audio.rs` olay döngüsünün karşılığı.
+ * Masaüstündeki `media_controls.rs` olay döngüsünün karşılığı.
  *
- * ⛔ MASAÜSTÜ DERSİ (CLAUDE.md v1.8.6-1.8.8, MOBILE.md §5.2-7): bu servis bir
- * hatada ÖLMEMELİ. Ses motoru thread'i panikleyince uygulama açık kaldığı hâlde
- * "bir daha hiçbir şey çalmıyor" durumu oluşuyordu. Her handler hatayı yutar.
+ * ⚠️ BUG'DI: "sonraki/önceki" doğrudan track-player'a gidiyordu
+ * (`skipToNext`). Kuyruk mantığı (tekrar, karışık, Keşfet beslemesi, dinleme
+ * kaydı) store'da olduğu için bu tuşlar ya hiçbir şey yapmıyor ya da öğrenmeyi
+ * atlıyordu. Artık arayüzdeki düğmelerle AYNI yoldan geçer.
+ *
+ * ⛔ MASAÜSTÜ DERSİ (CLAUDE.md v1.8.6-1.8.8): bu servis bir hatada ÖLMEMELİ.
+ * Her handler hatayı yutar.
  */
 async function safely(label: string, fn: () => Promise<unknown> | unknown) {
   try {
@@ -18,32 +23,22 @@ async function safely(label: string, fn: () => Promise<unknown> | unknown) {
   }
 }
 
+const player = () => usePlayerStore.getState();
+
 export async function PlaybackService() {
-  TrackPlayer.addEventListener(Event.RemotePlay, () => safely("play", () => TrackPlayer.play()));
+  TrackPlayer.addEventListener(Event.RemotePlay, () => safely("play", () => player().toggle()));
   TrackPlayer.addEventListener(Event.RemotePause, () => safely("pause", () => TrackPlayer.pause()));
-  TrackPlayer.addEventListener(Event.RemoteStop, () => safely("stop", () => TrackPlayer.stop()));
-  TrackPlayer.addEventListener(Event.RemoteNext, () => safely("next", () => TrackPlayer.skipToNext()));
-  TrackPlayer.addEventListener(Event.RemotePrevious, () =>
-    safely("previous", () => TrackPlayer.skipToPrevious())
-  );
+  // "Durdur" konumu sıfırlamasın: kaldığın yerden devam edilebilsin.
+  TrackPlayer.addEventListener(Event.RemoteStop, () => safely("stop", () => TrackPlayer.pause()));
+  TrackPlayer.addEventListener(Event.RemoteNext, () => safely("next", () => player().next("next")));
+  TrackPlayer.addEventListener(Event.RemotePrevious, () => safely("previous", () => player().previous()));
   TrackPlayer.addEventListener(Event.RemoteSeek, ({ position }) =>
     safely("seek", () => TrackPlayer.seekTo(position))
   );
-  TrackPlayer.addEventListener(Event.RemoteDuck, async ({ paused, permanent }) => {
-    await safely("duck", async () => {
-      if (permanent) return TrackPlayer.pause();
-      if (paused) return TrackPlayer.pause();
-      return TrackPlayer.play();
-    });
-  });
+  // Ses odağı kaybı (arama, başka uygulama) `autoHandleInterruptions` ile
+  // track-player'da; burada ayrıca ele almak duraklatılmış müziği geri açıyordu.
   // Kilit ekranı / bildirim oyu — arayüzdeki oyla AYNI yoldan geçer
   // (`vote.ts`), yoksa oy sessizce öğrenmeye katılmazdı.
   TrackPlayer.addEventListener(Event.RemoteLike, () => safely("like", () => voteCurrent(1)));
   TrackPlayer.addEventListener(Event.RemoteDislike, () => safely("dislike", () => voteCurrent(-1)));
-
-  TrackPlayer.addEventListener(Event.PlaybackError, (e) => {
-    // Sessiz ölüm YOK: hata görünür olsun (masaüstünde "neden çalmıyor" bug'ı
-    // aylarca böyle gizlendi).
-    console.error("[audio] oynatma hatası:", e);
-  });
 }

@@ -1,26 +1,19 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text } from "react-native";
+import { ScrollView } from "react-native";
 
 import { blockArtist, isBlocked, loadBlockedArtists, unblockArtist } from "../lib/blocked";
+import { useT } from "../lib/i18n.mobile";
 import { PREF_LESS, PREF_MORE, PREF_NORMAL, loadArtistPrefs, prefWeight, setArtistPref } from "../lib/prefs";
 import { useToastStore } from "../store/useToastStore";
+import { Chip } from "./ui";
 
 /**
- * Sanatçı kararları — ikisi de SENKRONLANIR (karar, türetilmiş veri değil).
- *
- * • "Daha çok / daha az öner" (`artist_prefs`, v1.8.0): elle ağırlık.
- * • "Bir daha önerme" (`blocked_artists`, v1.8.0): MOBILE.md §5.1 bunu mobil
- *   arayüzde ŞART diyor — PC'de engellediğin sanatçı telefonda da gelmemeli,
- *   ve telefonda engellediğin PC'de.
+ * Sanatçı tercihleri (masaüstü Zevk profili / Sanatçı sayfası düğmeleri):
+ * daha çok öner · daha az öner · bir daha önerme. Aynı düğmeye tekrar basmak
+ * tercihi sıfırlar.
  */
-export function ArtistActions({
-  artist,
-  children,
-}: {
-  artist: string;
-  /** Aynı satırda gösterilecek ek eylemler (indir, uyku). */
-  children?: React.ReactNode;
-}) {
+export function ArtistActions({ artist, children }: { artist: string; children?: React.ReactNode }) {
+  const t = useT();
   const [weight, setWeight] = useState(PREF_NORMAL);
   const [blocked, setBlocked] = useState(false);
   const show = useToastStore((s) => s.show);
@@ -46,10 +39,10 @@ export function ArtistActions({
     await setArtistPref(artist, value);
     show(
       value === PREF_MORE
-        ? `${artist} daha çok önerilecek`
+        ? t("m.artist.moreDone", { artist })
         : value === PREF_LESS
-          ? `${artist} daha az önerilecek`
-          : `${artist} için tercih sıfırlandı`,
+          ? t("m.artist.lessDone", { artist })
+          : t("m.artist.prefReset", { artist }),
       "info"
     );
   }
@@ -58,52 +51,24 @@ export function ArtistActions({
     if (blocked) {
       await unblockArtist(artist);
       setBlocked(false);
-      show(`${artist} engeli kaldırıldı`, "info");
+      show(t("m.artist.unblocked", { artist }), "info");
       return;
     }
     await blockArtist(artist);
     setBlocked(true);
-    show(`${artist} bir daha önerilmeyecek`, "info");
+    show(t("discover.blocked", { artist }), "info");
   }
 
-  // Tek satır, yatay kaydırmalı: sanatçı kararları + çalma eylemleri aynı
-  // düzlemde durur, ekranın altı kalabalıklaşmaz.
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      className="mt-5 max-h-9"
-      contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+      contentContainerStyle={{ gap: 8, paddingHorizontal: 20 }}
     >
-      <Chip label="Daha çok" active={weight === PREF_MORE} onPress={() => apply(PREF_MORE)} />
-      <Chip label="Daha az" active={weight === PREF_LESS} onPress={() => apply(PREF_LESS)} />
-      <Chip label={blocked ? "Engelli" : "Önerme"} active={blocked} danger onPress={toggleBlock} />
       {children}
+      <Chip icon="plus" label={t("taste.more")} active={weight === PREF_MORE} onPress={() => apply(PREF_MORE)} />
+      <Chip icon="minus" label={t("taste.less")} active={weight === PREF_LESS} onPress={() => apply(PREF_LESS)} />
+      <Chip icon="ban" label={blocked ? t("m.artist.blocked") : t("taste.block")} active={blocked} tone="down" onPress={toggleBlock} />
     </ScrollView>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  danger,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  danger?: boolean;
-  onPress: () => void;
-}) {
-  const border = active ? (danger ? "border-down" : "border-accent-dim") : "border-border";
-  const tint = active ? (danger ? "text-down" : "text-accent") : "text-muted";
-  return (
-    <Pressable
-      onPress={onPress}
-      className={`h-8 justify-center rounded-full border px-3 ${border} ${active ? "bg-surface-2" : ""}`}
-    >
-      <Text className={`${tint} text-[11px]`} style={{ fontFamily: "JetBrainsMono_400Regular" }}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }

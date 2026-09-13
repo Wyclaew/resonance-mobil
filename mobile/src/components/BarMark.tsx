@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { BAR_RATIOS, COLORS } from "../theme";
+import { BAR_RATIOS, useColors } from "../theme";
 
 /**
  * Marka işareti — uygulama ikonundaki 7 çubuklu ses dalgasının aynısı
@@ -21,13 +21,15 @@ import { BAR_RATIOS, COLORS } from "../theme";
  */
 export function BarMark({
   size = 20,
-  color = COLORS.accent,
+  color,
   alive = false,
 }: {
   size?: number;
   color?: string;
   alive?: boolean;
 }) {
+  const c = useColors();
+  color = color ?? c.accent;
   const barWidth = Math.max(1.5, size * 0.075);
   const gap = size * 0.045;
 

@@ -22,15 +22,30 @@ export async function findAlternative(track: Track): Promise<string | null> {
   if (!best) return null;
   await relinkTrack(track.id, best);
   console.log(`[alternatif] ${track.title} → ${best}`);
+  // Kuyruktaki kopyalar da yeni kaynağı taşısın — yoksa aynı parça her
+  // çalışta ölü videoyu yeniden deneyip yeniden arama yapıyordu.
+  for (const fn of relinkListeners) fn(track.id, best);
   return best;
 }
+
+const relinkListeners = new Set<(trackId: string, sourceId: string) => void>();
+export function onRelinked(fn: (trackId: string, sourceId: string) => void): () => void {
+  relinkListeners.add(fn);
+  return () => relinkListeners.delete(fn);
+}
+
+/** Bulunan eşdeğerler oturum boyunca akılda — her çalışta yeniden arama yapılmasın. */
+const standIns = new Map<string, string | null>();
 
 /**
  * Geçici eşdeğer: bulunur ama `tracks` tablosuna YAZILMAZ. Başka cihazdaki
  * yerel dosyayı telefonda çalmak için.
  */
 export async function findStandIn(track: Track): Promise<string | null> {
-  return searchEquivalent(track);
+  if (standIns.has(track.id)) return standIns.get(track.id) ?? null;
+  const found = await searchEquivalent(track);
+  standIns.set(track.id, found);
+  return found;
 }
 
 async function searchEquivalent(track: Track): Promise<string | null> {

@@ -1,168 +1,155 @@
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
-import { Eyebrow } from "../src/components/TrackRow";
-import { getDb } from "../src/lib/db";
-import { COLORS } from "../src/theme";
-
-interface TopRow {
-  name: string;
-  plays: number;
-  ms: number;
-}
-
-interface Stats {
-  totalMs: number;
-  plays: number;
-  artists: TopRow[];
-  tracks: TopRow[];
-  hours: { hour: number; ms: number }[];
-  freshArtists: number;
-}
-
-const hoursText = (ms: number) => {
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.round((ms % 3_600_000) / 60_000);
-  return h > 0 ? `${h} sa ${m} dk` : `${m} dk`;
-};
+import { HourBars, Meter } from "../src/components/Charts";
+import { useBottomSpace } from "../src/components/MiniPlayer";
+import { Button, Card, EmptyState, Eyebrow, Section, Segmented, Stat, TopBar } from "../src/components/ui";
+import { clock, count, date, duration, hours } from "../src/lib/fmt";
+import { useLang, useT } from "../src/lib/i18n.mobile";
+import { statsFor, type RangeStats, type TopRow } from "../src/lib/insights";
+import { useColors } from "../src/theme";
 
 /**
- * Dinleme analizi — masaüstündeki StatsView'ın sorgularının aynısı.
- * Tamamen `play_history` üzerinden türer; senkronla iki cihazın toplamı gelir.
+ * Dinleme etkinliği — masaüstü `StatsView`: neyi ne zaman dinledin, tüm
+ * cihazların ortak (play_history senkronlanıyor).
  */
-export default function StatsScreen() {
-  const [stats, setStats] = useState<Stats | null>(null);
+export default function Stats() {
+  const c = useColors();
+  const t = useT();
+  const lang = useLang();
+  const bottom = useBottomSpace(false);
+  const [range, setRange] = useState<7 | 30 | 365>(30);
+  const [data, setData] = useState<RangeStats | null>(null);
 
-  useEffect(() => {
-    void (async () => {
-      const db = await getDb();
-      const [tot] = await db.select<{ ms: number; c: number }[]>(
-        `SELECT COALESCE(SUM(ms_played),0) AS ms, COUNT(*) AS c FROM play_history`
-      );
-      const artists = await db.select<TopRow[]>(
-        `SELECT t.artist AS name, COUNT(*) AS plays, SUM(h.ms_played) AS ms
-           FROM play_history h JOIN tracks t ON t.id = h.track_id
-          WHERE t.artist <> '' GROUP BY t.artist ORDER BY ms DESC LIMIT 8`
-      );
-      const tracks = await db.select<TopRow[]>(
-        `SELECT t.title AS name, COUNT(*) AS plays, SUM(h.ms_played) AS ms
-           FROM play_history h JOIN tracks t ON t.id = h.track_id
-          GROUP BY h.track_id ORDER BY plays DESC LIMIT 8`
-      );
-      const hours = await db.select<{ hour: number; ms: number }[]>(
-        `SELECT hour, SUM(ms_played) AS ms FROM play_history GROUP BY hour ORDER BY hour`
-      );
-      const [fresh] = await db.select<{ c: number }[]>(
-        `SELECT COUNT(*) AS c FROM (
-           SELECT t.artist FROM play_history h JOIN tracks t ON t.id = h.track_id
-            WHERE h.played_at > $1 AND t.artist <> '' GROUP BY t.artist)`,
-        [Date.now() - 30 * 86_400_000]
-      );
-      setStats({
-        totalMs: tot?.ms ?? 0,
-        plays: tot?.c ?? 0,
-        artists,
-        tracks,
-        hours,
-        freshArtists: fresh?.c ?? 0,
-      });
-    })();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      setData(null);
+      void statsFor(range)
+        .then((d) => alive && setData(d))
+        .catch((e) => console.error("[istatistik] okunamadı:", e));
+      return () => {
+        alive = false;
+      };
+    }, [range])
+  );
 
-  if (!stats) {
-    return (
-      <View className="flex-1 items-center justify-center bg-bg">
-        <ActivityIndicator color={COLORS.accent} />
-      </View>
-    );
+  // Geçmişi güne göre grupla (başlık satırı + kayıtlar).
+  const days: { label: string; rows: RangeStats["recent"] }[] = [];
+  for (const r of data?.recent ?? []) {
+    const label = date(r.at, lang);
+    const last = days[days.length - 1];
+    if (last?.label === label) last.rows.push(r);
+    else days.push({ label, rows: [r] });
   }
 
-  const peak = Math.max(1, ...stats.hours.map((h) => h.ms));
-  const busiest = stats.hours.reduce((a, b) => (b.ms > (a?.ms ?? 0) ? b : a), stats.hours[0]);
-
   return (
-    <ScrollView className="flex-1 bg-bg px-5 pt-14" contentContainerStyle={{ paddingBottom: 40 }}>
-      <Eyebrow>Dinleme analizi</Eyebrow>
-      <Text className="text-text mt-2 text-[30px] leading-9" style={{ fontFamily: "Archivo_800ExtraBold" }}>
-        {hoursText(stats.totalMs)}
-      </Text>
-      <Text className="text-muted mt-1 text-sm">
-        {stats.plays} çalma · son 30 günde {stats.freshArtists} sanatçı
-      </Text>
-
-      <Section title="Saatlere göre" />
-      {/* 24 çubuk: günün hangi saatinde dinlediğin tek bakışta. */}
-      <View className="mt-3 h-24 flex-row items-end gap-[3px]">
-        {Array.from({ length: 24 }).map((_, hour) => {
-          const ms = stats.hours.find((h) => h.hour === hour)?.ms ?? 0;
-          const height = Math.max(2, (ms / peak) * 92);
-          return (
-            <View
-              key={hour}
-              style={{
-                flex: 1,
-                height,
-                borderRadius: 2,
-                backgroundColor: hour === busiest?.hour ? COLORS.accent : COLORS.surface3,
-              }}
+    <View className="bg-bg flex-1">
+      <TopBar
+        title={t("stats.title")}
+        right={<Button small kind="ghost" icon="calendar" label={t("wrapped.open")} onPress={() => router.push("/wrapped")} />}
+      />
+      <ScrollView contentContainerStyle={{ paddingBottom: bottom }}>
+        <View className="px-5">
+          <Text className="text-muted text-[13px]">{t("stats.subtitle")}</Text>
+          <View className="mt-4">
+            <Segmented
+              value={range}
+              onChange={setRange}
+              options={[
+                { value: 7, label: t("stats.days", { n: 7 }) },
+                { value: 30, label: t("stats.days", { n: 30 }) },
+                { value: 365, label: t("stats.year") },
+              ]}
             />
-          );
-        })}
-      </View>
-      <View className="mt-1 flex-row justify-between">
-        {["00", "06", "12", "18", "23"].map((label) => (
-          <Text
-            key={label}
-            className="text-faint text-[10px]"
-            style={{ fontFamily: "JetBrainsMono_400Regular" }}
-          >
-            {label}
-          </Text>
+          </View>
+        </View>
+
+        {!data ? (
+          <ActivityIndicator color={c.accent} style={{ marginTop: 40 }} />
+        ) : !data.plays ? (
+          <EmptyState icon="chart" text={t("stats.empty")} />
+        ) : (
+          <>
+            <View className="px-5 pt-5">
+              <Card>
+                <View className="p-4">
+                  <Text className="text-text text-[15px] leading-[22px]">
+                    {t("stats.summary", { hours: hours(data.totalMs, lang), plays: count(data.plays, lang), artists: data.newArtists })}
+                  </Text>
+                  <View className="mt-4 flex-row">
+                    <Stat value={`${hours(data.totalMs, lang)}`} label={`${t("stats.hoursShort")} ${t("stats.listened")}`} accent />
+                    <Stat value={count(data.plays, lang)} label={t("stats.plays")} />
+                  </View>
+                  <View className="mt-4 flex-row">
+                    <Stat value={count(data.artists, lang)} label={t("stats.artists")} />
+                    <Stat value={count(data.newArtists, lang)} label={t("stats.newArtists")} />
+                  </View>
+                </View>
+              </Card>
+            </View>
+
+            <Section title={t("stats.byHour")}>
+              <View className="px-5">
+                <HourBars values={data.byHour} height={72} />
+              </View>
+            </Section>
+
+            <TopList title={t("stats.topArtists")} rows={data.topArtists} onPress={(r) => router.push({ pathname: "/artist/[name]", params: { name: r.name } })} />
+            <TopList title={t("stats.topTracks")} rows={data.topTracks} />
+
+            <Section title={t("stats.history")}>
+              {days.map((d) => (
+                <View key={d.label} className="px-5 pb-2">
+                  <Text className="text-faint pb-1 pt-2 text-[11px]" style={{ fontFamily: "JetBrainsMono_500Medium" }}>
+                    {d.label}
+                  </Text>
+                  {d.rows.map((r) => (
+                    <View key={`${r.id}-${r.at}`} className="flex-row items-center py-1.5">
+                      <Text className="text-faint w-12 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                        {clock(r.at)}
+                      </Text>
+                      <Text className="text-text flex-1 text-[13px]" numberOfLines={1}>
+                        {r.title}
+                        <Text className="text-muted">{`  ·  ${r.artist}`}</Text>
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </Section>
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+function TopList({ title, rows, onPress }: { title: string; rows: TopRow[]; onPress?: (r: TopRow) => void }) {
+    const lang = useLang();
+    const max = Math.max(1, ...rows.map((r) => r.ms));
+    return (
+      <Section title={title}>
+        {rows.map((r, i) => (
+          <Pressable key={`${r.name}-${i}`} disabled={!onPress} onPress={() => onPress?.(r)} className="px-5 py-2">
+            <View className="flex-row items-baseline">
+              <Text className="text-faint w-6 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                {i + 1}
+              </Text>
+              <Text className="text-text flex-1 text-[14px]" style={{ fontFamily: "Inter_500Medium" }} numberOfLines={1}>
+                {r.name}
+                {r.artist ? <Text className="text-muted text-[12px]">{`  ·  ${r.artist}`}</Text> : null}
+              </Text>
+              <Text className="text-muted ml-2 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+                {`${r.plays}× · ${duration(r.ms, lang)}`}
+              </Text>
+            </View>
+            <View className="mt-1.5 pl-6">
+              <Meter ratio={r.ms / max} tone={i === 0 ? "accent" : "muted"} height={3} />
+            </View>
+          </Pressable>
         ))}
-      </View>
-
-      <Section title="En çok dinlenen sanatçılar" />
-      {stats.artists.map((row, i) => (
-        <Row key={row.name} rank={i + 1} name={row.name} value={hoursText(row.ms)} />
-      ))}
-
-      <Section title="En çok çalınan parçalar" />
-      {stats.tracks.map((row, i) => (
-        <Row key={`${row.name}-${i}`} rank={i + 1} name={row.name} value={`${row.plays}×`} />
-      ))}
-
-      <Pressable onPress={() => router.back()} className="mt-8 items-center py-3">
-        <Text className="text-faint text-sm">Kapat</Text>
-      </Pressable>
-    </ScrollView>
-  );
-}
-
-function Section({ title }: { title: string }) {
-  return (
-    <View className="mt-8">
-      <Eyebrow>{title}</Eyebrow>
-    </View>
-  );
-}
-
-/** Sıra numarası burada gerçek bilgi: liste zaten büyükten küçüğe sıralı. */
-function Row({ rank, name, value }: { rank: number; name: string; value: string }) {
-  return (
-    <View className="mt-2 flex-row items-center border-b border-border pb-2">
-      <Text
-        className="text-faint w-6 text-[11px]"
-        style={{ fontFamily: "JetBrainsMono_400Regular" }}
-      >
-        {String(rank).padStart(2, "0")}
-      </Text>
-      <Text className="text-text flex-1 text-[14px]" numberOfLines={1}>
-        {name}
-      </Text>
-      <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
-        {value}
-      </Text>
-    </View>
-  );
+      </Section>
+    );
 }

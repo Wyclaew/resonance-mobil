@@ -33,14 +33,26 @@ async function musicGenrePool(args: Args): Promise<Track[]> {
  * Şarkı sözü — masaüstünde Rust `get_lyrics` komutu lrclib.net'e gidiyordu;
  * mobilde aynı iş saf `fetch` ile yapılır (native gerekmiyor).
  */
+/** Aynı şarkının sözü oturumda bir kez istenir (oynatıcı, ambiyans, sözler aynı veriyi ister). */
+const lyricsMemo = new Map<string, { synced: string | null; plain: string | null }>();
+
 async function getLyrics(args: Args): Promise<{ synced: string | null; plain: string | null }> {
   const artist = String(args.artist ?? "");
   const title = cleanTitle(String(args.title ?? ""));
+  const key = `${artist.toLowerCase()}|${title.toLowerCase()}`;
+  const memo = lyricsMemo.get(key);
+  if (memo) return memo;
   const url =
     "https://lrclib.net/api/search?" +
     new URLSearchParams({ track_name: title, artist_name: artist }).toString();
-  const res = await fetch(url, { headers: { "user-agent": "Resonance (personal music player)" } });
-  if (!res.ok) return { synced: null, plain: null };
+  const headers = { "user-agent": "Resonance (personal music player)" };
+  let res = await fetch(url, { headers }).catch(() => null);
+  // lrclib ara ara 5xx veriyor (ölçüldü: 520) — bir kez kısa beklemeyle yeniden dene.
+  if (!res || res.status >= 500) {
+    await new Promise((r) => setTimeout(r, 1200));
+    res = await fetch(url, { headers }).catch(() => null);
+  }
+  if (!res || !res.ok) return { synced: null, plain: null };
   const items = (await res.json()) as { syncedLyrics?: string; plainLyrics?: string }[];
   let synced: string | null = null;
   let plain: string | null = null;
@@ -49,7 +61,9 @@ async function getLyrics(args: Args): Promise<{ synced: string | null; plain: st
     if (!plain && item.plainLyrics?.trim()) plain = item.plainLyrics;
     if (synced && plain) break;
   }
-  return { synced, plain };
+  const result = { synced, plain };
+  lyricsMemo.set(key, result);
+  return result;
 }
 
 /** Rust `clean_title` ile aynı: parantez içi + "feat" kuyruğu atılır. */

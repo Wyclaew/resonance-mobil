@@ -1,18 +1,18 @@
 import { View } from "react-native";
 
-import { COLORS } from "../theme";
+import { useColors } from "../theme";
 
 /**
- * Satırın sol kenarındaki TEK çubuk — logonun dilini listeye taşır.
- * Yüksekliği ve rengi karmayı anlatır: yukarı oylanan uzar ve kehribar olur,
- * aşağı oylanan kısalır ve kile döner. Liste boyunca çubuklar, zevkinin
- * ekolayzırı gibi okunur.
+ * Listelerin sol rayındaki tek çubuk = karma.
+ * Yüksekliği ve rengi karmayı anlatır: yukarı oylanan uzar ve vurgu rengini
+ * alır, aşağı oylanan kısalır ve kızarır. Sayı okumadan liste taranabilir.
  */
 export function KarmaBar({ karma, height = 40 }: { karma: number; height?: number }) {
+  const c = useColors();
+  const rounded = Math.round(karma);
   const magnitude = Math.min(1, Math.abs(karma) / 6);
-  const fill = karma === 0 ? 0.28 : 0.34 + magnitude * 0.66;
-  const color = karma > 0 ? COLORS.accent : karma < 0 ? COLORS.downDim : COLORS.border;
-
+  const fill = rounded === 0 ? 0.28 : 0.34 + magnitude * 0.66;
+  const color = rounded > 0 ? c.accent : rounded < 0 ? c.downDim : c.border;
   return (
     <View style={{ width: 3, height, justifyContent: "center" }}>
       <View style={{ width: 3, height: height * fill, borderRadius: 2, backgroundColor: color }} />

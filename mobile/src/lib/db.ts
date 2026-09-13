@@ -39,8 +39,23 @@ function named(bindValues?: unknown[]): Record<string, SQLite.SQLiteBindValue> {
   return out;
 }
 
+let rawDb: SQLite.SQLiteDatabase | null = null;
+
+/**
+ * Veritabanını kapat — yalnız yedekten GERİ YÜKLEME için (dosya açıkken
+ * üzerine yazılamaz). Sonraki `getDb()` dosyayı yeniden açar ve migration'ları
+ * yeniden koşar (eski sürümlü bir yedek de güncel şemaya çıkar).
+ */
+export async function closeDb(): Promise<void> {
+  const raw = rawDb;
+  rawDb = null;
+  dbPromise = null;
+  if (raw) await raw.closeAsync();
+}
+
 async function open(): Promise<DbLike> {
   const db = await SQLite.openDatabaseAsync(DB_NAME);
+  rawDb = db;
   await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   await migrate(db);
 

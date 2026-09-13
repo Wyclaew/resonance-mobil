@@ -1,39 +1,43 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
-import { FlatList, Pressable, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { FlatList, Text, View } from "react-native";
 
-import { Eyebrow, TrackRow } from "../../src/components/TrackRow";
-import { getDb } from "../../src/lib/db";
-import { pruneCache } from "../../src/lib/downloads";
-import { useDownloadStore } from "../../src/store/useDownloadStore";
-import { useSettingsStore } from "../../src/store/useSettingsStore";
+import { useBottomSpace } from "../src/components/MiniPlayer";
+import { TrackRow } from "../src/components/TrackRow";
+import { Button, EmptyState, Eyebrow, Segmented, TopBar } from "../src/components/ui";
+import { getDb } from "../src/lib/db";
+import { bytes as fmtBytes } from "../src/lib/fmt";
+import { useLang, useT } from "../src/lib/i18n.mobile";
+import { useDownloadStore } from "../src/store/useDownloadStore";
+import { usePlayerStore } from "../src/store/usePlayerStore";
+import { useSettingsStore } from "../src/store/useSettingsStore";
+import type { Track } from "../src/types";
 
-interface CacheRow {
-  track_id: string;
-  title: string;
-  artist: string;
-  thumbnail: string | null;
-  bytes: number;
-  downloaded: number;
-}
+type Row = Track & { bytes: number; downloaded: number };
 
-const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
-
-/** İndirilenler — çevrimdışı çalınabilir parçalar, iniş durumu ve kota. */
+/**
+ * İndirilenler — masaüstü `DownloadsView`: internet olmadan çalabileceğin
+ * şarkılar. Mobilde ayrıca geçici önbellek (çalarken inenler) ayrı sekmede
+ * görünür; LRU sınırı ve kalan yer tek satırda.
+ */
 export default function Downloads() {
-  const [rows, setRows] = useState<CacheRow[]>([]);
-  const jobs = useDownloadStore((s) => s.jobs);
+  const t = useT();
+  const lang = useLang();
+  const bottom = useBottomSpace(false);
   const limitGb = useSettingsStore((s) => s.cacheLimitGb);
+  const jobs = useDownloadStore((s) => s.jobs);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [tab, setTab] = useState<"kept" | "temp">("kept");
 
   const load = useCallback(async () => {
     const db = await getDb();
-    setRows(
-      await db.select<CacheRow[]>(
-        `SELECT c.track_id, t.title, t.artist, t.thumbnail, c.bytes, c.downloaded
+    const list = await db.select<(Row & { thumbnail: string | null; album: string | null })[]>(
+      `SELECT t.id, t.source, t.source_id AS sourceId, t.title, t.artist, t.album,
+              t.duration_ms AS durationMs, t.thumbnail, c.bytes, c.downloaded
          FROM cache c JOIN tracks t ON t.id = c.track_id
-         ORDER BY c.downloaded DESC, c.last_played DESC`
-      )
+        ORDER BY c.last_played DESC`
     );
+    setRows(list.map((r) => ({ ...r, thumbnail: r.thumbnail ?? undefined, album: r.album ?? undefined })));
   }, []);
 
   useFocusEffect(
@@ -42,77 +46,56 @@ export default function Downloads() {
     }, [load])
   );
 
-  const total = rows.reduce((sum, r) => sum + r.bytes, 0);
-  const limitBytes = limitGb * 1024 * 1024 * 1024;
-  const active = Object.values(jobs).filter((j) => j.status !== "bitti");
-  const ratio = limitBytes ? Math.min(1, total / limitBytes) : 0;
+  const kept = useMemo(() => rows.filter((r) => r.downloaded), [rows]);
+  const temp = useMemo(() => rows.filter((r) => !r.downloaded), [rows]);
+  const shown = tab === "kept" ? kept : temp;
+  const total = rows.reduce((a, r) => a + (r.bytes || 0), 0);
+  const active = Object.values(jobs).filter((j) => j.status === "running" || j.status === "queued").length;
 
   return (
-    <View className="flex-1 bg-bg px-5">
-      <Eyebrow>{`${rows.length} parça · ${mb(total)} / ${limitGb} GB`}</Eyebrow>
-      <View className="mt-2 h-[2px] w-full bg-surface-3">
-        <View
-          className={`h-[2px] ${total > limitBytes ? "bg-down" : "bg-accent"}`}
-          style={{ width: `${ratio * 100}%` }}
-        />
-      </View>
-
-      {active.length ? (
-        <View className="mt-4">
-          {active.map((job) => (
-            <View key={job.track.id} className="mb-2">
-              <Text className="text-text text-[13px]" numberOfLines={1}>
-                {job.track.title}
-              </Text>
-              <Text
-                className={job.status === "hata" ? "text-down text-[10px]" : "text-faint text-[10px]"}
-                style={{ fontFamily: "JetBrainsMono_400Regular" }}
-              >
-                {job.status === "hata" ? job.error : `${job.status} · %${Math.round(job.progress * 100)}`}
-              </Text>
-              <View className="mt-1 h-[2px] w-full bg-surface-3">
-                <View className="h-[2px] bg-accent-dim" style={{ width: `${job.progress * 100}%` }} />
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
+    <View className="bg-bg flex-1">
+      <TopBar title={t("downloads.title")} />
       <FlatList
-        data={rows}
-        keyExtractor={(r) => r.track_id}
-        className="mt-3 -mx-3"
-        contentContainerStyle={{ paddingBottom: 20 }}
-        ListEmptyComponent={
-          <Text className="text-muted mt-10 px-4 text-sm leading-5">
-            İndirilmiş parça yok. Şu An ekranındaki “İndir” çevrimdışı çalmak için saklar;
-            sıradaki parça zaten Wi-Fi'dayken kendiliğinden inip hazır bekler.
-          </Text>
+        data={shown}
+        keyExtractor={(r) => r.id}
+        contentContainerStyle={{ paddingBottom: bottom, paddingHorizontal: 4 }}
+        ListHeaderComponent={
+          <View className="px-4 pb-3">
+            <Text className="text-muted text-[13px]">{t("downloads.subtitle")}</Text>
+            <Text className="text-faint mt-1 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+              {`${fmtBytes(total, lang)} / ${limitGb > 0 ? `${limitGb} GB` : t("settings.cacheLimitOff")}${
+                active ? ` · ${t("m.downloads.active", { n: active })}` : ""
+              }`}
+            </Text>
+            <View className="mt-4">
+              <Segmented
+                value={tab}
+                onChange={setTab}
+                options={[
+                  { value: "kept", label: `${t("settings.downloadsKept")} · ${kept.length}` },
+                  { value: "temp", label: `${t("settings.tempCache")} · ${temp.length}` },
+                ]}
+              />
+            </View>
+            <View className="mt-3">
+              <Eyebrow>{tab === "kept" ? t("downloads.count", { count: kept.length }) : t("settings.tempCacheDesc")}</Eyebrow>
+            </View>
+            {shown.length ? (
+              <Button
+                small
+                kind="secondary"
+                icon="play"
+                label={t("playlist.playOrdered")}
+                className="mt-3 self-start"
+                onPress={() => void usePlayerStore.getState().playNow(shown[0], shown)}
+              />
+            ) : null}
+          </View>
         }
         renderItem={({ item }) => (
-          <TrackRow
-            title={item.title}
-            artist={item.artist}
-            thumbnail={item.thumbnail ?? undefined}
-            meta={mb(item.bytes)}
-            note={item.downloaded ? "kalıcı" : "önbellek · kota dolunca silinebilir"}
-          />
+          <TrackRow track={item} meta={fmtBytes(item.bytes, lang)} onPress={() => void usePlayerStore.getState().playNow(item, shown)} />
         )}
-        ListFooterComponent={
-          rows.length ? (
-            <Pressable
-              onPress={async () => {
-                await pruneCache(limitBytes);
-                await load();
-              }}
-              className="mx-3 mt-4 items-center rounded border border-border py-3"
-            >
-              <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
-                Kotaya göre buda
-              </Text>
-            </Pressable>
-          ) : null
-        }
+        ListEmptyComponent={<EmptyState icon="download" text={tab === "kept" ? t("downloads.emptyState") : t("m.downloads.tempEmpty")} />}
       />
     </View>
   );

@@ -1,26 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
+import TrackPlayer from "react-native-track-player";
 
+import { useT } from "../lib/i18n.mobile";
 import { fetchLyrics, type LrcLine } from "../lib/lyrics";
 import type { Track } from "../types";
 
+const LINE_HEIGHT = 34;
+
 /**
- * Şarkı sözleri (lrclib.net). Zaman kodlu söz varsa çalan satır vurgulanır.
- *
- * ⚠️ Masaüstü dersi (v1.8.8): konum saniyede birkaç kez geliyor; satır
- * vurgusu için bu yeterli, ama HARF dolgusu yapılacaksa yerel saatle
- * ara değer gerekir. Burada satır düzeyinde kalıyoruz — telefonda okunaklı
- * olan da bu.
+ * Şarkı sözleri (lrclib). Zamanlı sözde çalan satır vurgulanır ve ortada
+ * tutulur; bir satıra dokununca şarkı o ana sarar (masaüstü `LyricsPanel`).
  */
-export function Lyrics({ track, positionMs }: { track: Track; positionMs: number }) {
+export function Lyrics({ track, positionMs, large }: { track: Track; positionMs: number; large?: boolean }) {
+  const t = useT();
   const [synced, setSynced] = useState<LrcLine[] | null>(null);
   const [plain, setPlain] = useState<string | null>(null);
-  const [state, setState] = useState<"yükleniyor" | "hazır" | "yok">("yükleniyor");
+  const [state, setState] = useState<"loading" | "ready" | "none">("loading");
   const scroller = useRef<ScrollView>(null);
+  const [boxHeight, setBoxHeight] = useState(260);
 
   useEffect(() => {
     let alive = true;
-    setState("yükleniyor");
+    setState("loading");
     setSynced(null);
     setPlain(null);
     void fetchLyrics(track.artist, track.title, track.durationMs)
@@ -28,62 +30,65 @@ export function Lyrics({ track, positionMs }: { track: Track; positionMs: number
         if (!alive) return;
         setSynced(res.synced);
         setPlain(res.plain);
-        setState(res.synced || res.plain ? "hazır" : "yok");
+        setState(res.synced || res.plain ? "ready" : "none");
       })
-      .catch(() => alive && setState("yok"));
+      .catch(() => alive && setState("none"));
     return () => {
       alive = false;
     };
   }, [track.id, track.artist, track.title, track.durationMs]);
 
-  const activeIndex = synced
-    ? synced.reduce((acc, line, i) => (line.timeMs <= positionMs ? i : acc), -1)
-    : -1;
+  const activeIndex = synced ? synced.reduce((acc, line, i) => (line.timeMs <= positionMs ? i : acc), -1) : -1;
 
+  // Satır yükseklikleri sabit değil (uzun satır iki satıra kırılır) → gerçek
+  // konumlar ölçülür; sabit yükseklik varsayımı vurguyu ekran dışına kaydırıyordu.
+  const lineY = useRef<number[]>([]);
   useEffect(() => {
     if (activeIndex < 0) return;
-    // Etkin satırı üstten üçte bire çek — okuyan göz orada duruyor.
-    scroller.current?.scrollTo({ y: Math.max(0, activeIndex * 30 - 90), animated: true });
-  }, [activeIndex]);
+    const y = lineY.current[activeIndex] ?? activeIndex * LINE_HEIGHT;
+    scroller.current?.scrollTo({ y: Math.max(0, y - boxHeight / 2 + LINE_HEIGHT), animated: true });
+  }, [activeIndex, boxHeight]);
 
-  if (state === "yükleniyor") {
-    return <Note>sözler aranıyor…</Note>;
-  }
-  if (state === "yok") {
-    return <Note>bu şarkı için söz bulunamadı</Note>;
+  if (state !== "ready") {
+    return (
+      <Text className="text-faint py-6 text-center text-[12px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+        {state === "loading" ? t("lyrics.loading") : t("lyrics.notFound")}
+      </Text>
+    );
   }
 
   return (
     <ScrollView
       ref={scroller}
-      className="mt-2 max-h-64"
+      style={{ maxHeight: large ? undefined : 300 }}
       showsVerticalScrollIndicator={false}
       nestedScrollEnabled
+      onLayout={(e) => setBoxHeight(e.nativeEvent.layout.height)}
     >
       {synced ? (
         synced.map((line, i) => (
           <Text
             key={`${line.timeMs}-${i}`}
-            className={`py-1 text-[15px] leading-[22px] ${
-              i === activeIndex ? "text-accent" : "text-faint"
-            }`}
-            style={{ fontFamily: i === activeIndex ? "Inter_600SemiBold" : "Inter_400Regular" }}
+            onLayout={(e) => {
+              lineY.current[i] = e.nativeEvent.layout.y;
+            }}
+            onPress={() => void TrackPlayer.seekTo(line.timeMs / 1000)}
+            className={i === activeIndex ? "text-text" : i < activeIndex ? "text-faint" : "text-muted"}
+            style={{
+              minHeight: LINE_HEIGHT,
+              paddingVertical: 5,
+              fontSize: large ? 22 : 17,
+              lineHeight: large ? 30 : 24,
+              fontFamily: i === activeIndex ? "Archivo_700Bold" : "Inter_500Medium",
+            }}
           >
-            {line.text || "·"}
+            {line.text || "♪"}
           </Text>
         ))
       ) : (
-        <Text className="text-muted text-[15px] leading-[22px]">{plain}</Text>
+        <Text className="text-muted text-[16px] leading-[26px]">{plain}</Text>
       )}
-      <View className="h-6" />
+      <View className="h-10" />
     </ScrollView>
-  );
-}
-
-function Note({ children }: { children: string }) {
-  return (
-    <Text className="text-faint mt-3 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
-      {children}
-    </Text>
   );
 }

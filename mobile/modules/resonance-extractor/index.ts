@@ -69,18 +69,20 @@ export const scanLocal = (limit = 2000) => native.scanLocal(limit);
  * (CLAUDE.md gotcha #1). ExoPlayer opus/webm'i sorunsuz çalar → itag 251
  * (Opus ~160k) masaüstündeki 128k m4a'dan İYİ. Veri kotası için `preferSmall`.
  */
+export type StreamQuality = "high" | "medium" | "low";
+
 export function pickStream(
   streams: AudioStreamInfo[],
-  opts: { preferSmall?: boolean } = {}
+  quality: StreamQuality = "high"
 ): AudioStreamInfo | undefined {
-  const usable = streams.filter((s) => s.isProgressive && !!s.url);
+  const usable = streams
+    .filter((s) => s.isProgressive && !!s.url)
+    .sort((a, b) => b.bitrate - a.bitrate);
   if (!usable.length) return undefined;
-  if (opts.preferSmall) {
-    // Mobil veride: 64–100 kbps yeter; yoksa en düşüğü.
-    const small = usable.filter((s) => s.bitrate > 0 && s.bitrate <= 100);
-    return small.sort((a, b) => b.bitrate - a.bitrate)[0] ?? usable[usable.length - 1];
-  }
-  return usable.sort((a, b) => b.bitrate - a.bitrate)[0];
+  if (quality === "high") return usable[0];
+  if (quality === "low") return usable[usable.length - 1];
+  // Orta: 100 kbps'i aşmayan en iyisi (ölçüldü: opus 250 ≈ 70 kbps). Yoksa en düşüğü.
+  return usable.find((s) => s.bitrate > 0 && s.bitrate <= 100) ?? usable[usable.length - 1];
 }
 
 /**

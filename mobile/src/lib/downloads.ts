@@ -11,7 +11,8 @@
 import { Directory, File, FileMode, Paths } from "expo-file-system";
 
 import * as Extractor from "../../modules/resonance-extractor";
-import type { AudioStreamInfo } from "../../modules/resonance-extractor";
+import type { AudioStreamInfo, StreamQuality } from "../../modules/resonance-extractor";
+import { invalidateUrl, resolveCached } from "../audio/urlCache";
 import { getDb } from "./db";
 import { ensureTrack } from "./playlists";
 import type { Track } from "../types";
@@ -85,7 +86,8 @@ export async function downloadTrack(
   track: Track,
   opts: {
     permanent?: boolean;
-    preferSmall?: boolean;
+    /** Ayarlar → Ses kalitesi (masaüstündeki `audioQuality`). */
+    quality?: StreamQuality;
     onProgress?: (p: DownloadProgress) => void;
     signal?: AbortSignal;
   } = {}
@@ -97,12 +99,13 @@ export async function downloadTrack(
   await ensureTrack(track);
   const trackId = track.id;
   const videoId = track.sourceId;
-  const info = await Extractor.resolve(videoId);
-  const stream = Extractor.pickStream(info.streams, { preferSmall: opts.preferSmall });
+  const info = await resolveCached(videoId);
+  const stream = Extractor.pickStream(info.streams, opts.quality ?? "high");
   if (!stream) throw new Error("çalınabilir ses akışı yok");
 
   const total = stream.contentLength;
   if (total > 0 && !(await urlIsHealthy(stream.url, total))) {
+    invalidateUrl(videoId);
     throw new Error("adres kısıtlı (sağlık testi başarısız)");
   }
 
@@ -158,8 +161,13 @@ async function recordCache(
   );
 }
 
-/** Önbellekte hazır dosya var mı? (offline çalma) */
-export async function cachedPath(trackId: string): Promise<string | null> {
+/**
+ * Önbellekte hazır dosya var mı? (offline çalma)
+ * `touch`: çalınacaksa son çalma zamanını tazele — ⚠️ BUG'DI: `last_played`
+ * yalnız indirme anında yazılıyordu, LRU "en eski indirileni" siliyordu,
+ * "en uzun süredir çalınmayanı" değil.
+ */
+export async function cachedPath(trackId: string, touch = false): Promise<string | null> {
   const db = await getDb();
   const rows = await db.select<{ file_path: string; bytes: number }[]>(
     `SELECT file_path, bytes FROM cache WHERE track_id = $1`,
@@ -168,14 +176,93 @@ export async function cachedPath(trackId: string): Promise<string | null> {
   const row = rows[0];
   if (!row) return null;
   const file = new File(row.file_path);
-  return file.exists && (file.size ?? 0) > 0 ? row.file_path : null;
+  if (!file.exists || (file.size ?? 0) === 0) {
+    // Dosya dışarıdan silinmiş (depolama temizliği): kaydı da düşür, yoksa
+    // parça "indirildi" görünür ama çalınamaz.
+    await db.execute(`DELETE FROM cache WHERE track_id = $1`, [trackId]);
+    return null;
+  }
+  if (touch) {
+    await db.execute(`UPDATE cache SET last_played = $1 WHERE track_id = $2`, [Date.now(), trackId]);
+  }
+  return row.file_path;
+}
+
+/** Kullanıcının kalıcı indirdiği parça kimlikleri (arayüzdeki ✓ işareti). */
+export async function downloadedIds(): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.select<{ track_id: string }[]>(`SELECT track_id FROM cache WHERE downloaded = 1`);
+  return rows.map((r) => r.track_id);
+}
+
+/** İndirileni kaldır: dosya + kayıt. */
+export async function removeDownload(trackId: string): Promise<void> {
+  const db = await getDb();
+  const rows = await db.select<{ file_path: string }[]>(`SELECT file_path FROM cache WHERE track_id = $1`, [trackId]);
+  for (const r of rows) {
+    try {
+      const f = new File(r.file_path);
+      if (f.exists) f.delete();
+    } catch (e) {
+      console.warn("[downloads] dosya silinemedi:", e);
+    }
+  }
+  await db.execute(`DELETE FROM cache WHERE track_id = $1`, [trackId]);
+}
+
+export interface CacheUsage {
+  tempBytes: number;
+  tempCount: number;
+  keptBytes: number;
+  keptCount: number;
+}
+
+export async function cacheUsage(): Promise<CacheUsage> {
+  const db = await getDb();
+  const rows = await db.select<{ downloaded: number; bytes: number; n: number }[]>(
+    `SELECT downloaded, COALESCE(SUM(bytes),0) AS bytes, COUNT(*) AS n FROM cache GROUP BY downloaded`
+  );
+  const u: CacheUsage = { tempBytes: 0, tempCount: 0, keptBytes: 0, keptCount: 0 };
+  for (const r of rows) {
+    if (r.downloaded) {
+      u.keptBytes = r.bytes;
+      u.keptCount = r.n;
+    } else {
+      u.tempBytes = r.bytes;
+      u.tempCount = r.n;
+    }
+  }
+  return u;
+}
+
+/** Geçici önbelleği (kullanıcının indirmedikleri) temizle. İndirilenler kalır. */
+export async function clearTempCache(): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ track_id: string; file_path: string; bytes: number }[]>(
+    `SELECT track_id, file_path, bytes FROM cache WHERE downloaded = 0`
+  );
+  let freed = 0;
+  for (const r of rows) {
+    try {
+      const f = new File(r.file_path);
+      if (f.exists) f.delete();
+    } catch {
+      // silinemeyen dosya bir sonraki budamada yeniden denenir
+    }
+    freed += r.bytes;
+  }
+  await db.execute(`DELETE FROM cache WHERE downloaded = 0`);
+  return freed;
 }
 
 /**
  * ⭐ LRU budama — mobilde ŞART (MOBILE.md §1: depolama sınırlı).
  * Kullanıcının açıkça indirdikleri (`downloaded = 1`) korunur.
+ * `limitBytes <= 0` = SINIRSIZ (masaüstündeki "0 = sınırsız" anlamı) —
+ * ⚠️ BUG'DI: 0 sınır her geçici dosyayı siliyordu.
  */
 export async function pruneCache(limitBytes: number): Promise<{ freed: number; removed: number }> {
+  if (!(limitBytes > 0)) return { freed: 0, removed: 0 };
   const db = await getDb();
   const rows = await db.select<{ track_id: string; file_path: string; bytes: number }[]>(
     `SELECT track_id, file_path, bytes FROM cache
