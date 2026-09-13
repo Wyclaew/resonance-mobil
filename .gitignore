@@ -14,3 +14,10 @@ spike/newpipe/.gradle/
 spike/newpipe/build/
 spike/node-extract/node_modules/
 spike/node-extract/package-lock.json
+# Gradle çıktısı — yerel modülün build klasörü (yanlışlıkla izleniyordu)
+mobile/modules/*/android/build/
+mobile/modules/*/android/.gradle/
+# Oturum eklentisinin çalışma dosyaları (depo içeriği değil)
+.claude/ctx-journal.md
+.claude/context-ledger.md
+.claude/ctx-spill/
