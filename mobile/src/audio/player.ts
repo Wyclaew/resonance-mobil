@@ -8,12 +8,57 @@ import TrackPlayer, {
 
 import * as Extractor from "../../modules/resonance-extractor";
 import { cachedPath } from "../lib/downloads";
+import { gainForTrack } from "../lib/loudness";
+import { useSettingsStore } from "../store/useSettingsStore";
 import { isPlayableHere } from "../lib/localAudio";
 import { findAlternative, findStandIn, isUnavailable } from "../lib/relink";
 import { bestThumb } from "../lib/thumbs";
 import type { Track } from "../types";
 
 let ready = false;
+
+/**
+ * Şu anki parçanın eşitleme kazancı (0..1). Uyku zamanlayıcı sesi kıstıktan
+ * sonra 1'e DEĞİL buna döner — yoksa sonraki parça eşitlemesiz patlardı.
+ */
+let gain = 1;
+export const currentGain = () => gain;
+
+/**
+ * ⭐ SES SEVİYESİ EŞİTLEME (masaüstündeki `loudness.ts`, aynı −14 LUFS hedefi).
+ * İlk ölçüm ~0.5 sn sürebilir: en fazla {@link GAIN_WAIT_MS} beklenir, olmazsa
+ * parça başlar ve kazanç gelince uygulanır. Masaüstü dersi: ölçümsüz başlayıp
+ * sonra seviyeyi değiştirmek duyulur bir sıçrama yapıyor — ön ölçüm
+ * (`premeasure`, sıradaki parça için) bunun asıl çözümü.
+ */
+const GAIN_WAIT_MS = 800;
+
+async function applyLoudness(track: Track): Promise<void> {
+  if (!useSettingsStore.getState().normalizeVolume || track.source === "local") {
+    gain = 1;
+    await TrackPlayer.setVolume(1);
+    return;
+  }
+  const pending = gainForTrack(track.id, track.sourceId).then((g) => Math.min(1, g));
+  const timeout = new Promise<null>((r) => setTimeout(() => r(null), GAIN_WAIT_MS));
+  const first = await Promise.race([pending, timeout]);
+  if (first !== null) {
+    gain = first;
+    await TrackPlayer.setVolume(gain);
+    console.log(`[ses] eşitleme kazancı ${gain.toFixed(2)} (${(20 * Math.log10(gain)).toFixed(1)} dB)`);
+    return;
+  }
+  gain = 1;
+  await TrackPlayer.setVolume(1);
+  void pending.then(async (g) => {
+    // Bu arada başka parçaya geçildiyse eskisinin kazancını uygulama.
+    const active = await TrackPlayer.getActiveTrack();
+    if (active?.id !== track.id) return;
+    gain = g;
+    await TrackPlayer.setVolume(g);
+    console.log(`[ses] eşitleme kazancı (geç) ${g.toFixed(2)}`);
+  });
+}
 
 /** Uygulama açılışında bir kez. Çift kurulum RNTP'de hata fırlatır. */
 export async function setupAudio(): Promise<void> {
@@ -134,6 +179,7 @@ export async function playTrack(
     artwork: bestThumb(track.thumbnail, 720),
     duration: track.durationMs > 0 ? track.durationMs / 1000 : undefined,
   });
+  await applyLoudness(track);
   if (opts.startSeconds && opts.startSeconds > 0) await TrackPlayer.seekTo(opts.startSeconds);
   // Çapraz cihaz devamında kuyruk DURAKLATILMIŞ kurulur (MOBILE.md §5.1):
   // telefon cebindeyken kendiliğinden çalmaya başlamamalı.

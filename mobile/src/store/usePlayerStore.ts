@@ -5,6 +5,7 @@ import { playTrack } from "../audio/player";
 import * as Extractor from "../../modules/resonance-extractor";
 import type { RemoteQueue } from "../lib/deviceQueue";
 import { cachedPath } from "../lib/downloads";
+import { premeasure } from "../lib/loudness";
 import { getRecommendations, songCore, type Recommendation } from "../lib/recommender";
 import type { QueueItem, Track } from "../types";
 import { useDownloadStore } from "./useDownloadStore";
@@ -301,6 +302,9 @@ async function prefetchNext(get: () => PlayerState): Promise<void> {
     const { queue, index } = get();
     const next = queue[index + 1];
     if (!next || next.source === "local") return;
+    // Kazancı önden ölç: parça başlarken seviye sıçramasın (ölçüm yalnız
+    // meta veri, Wi-Fi şartı yok — ~200 ms, birkaç KB).
+    void premeasure(next.id, next.sourceId);
     if (await cachedPath(next.id)) return; // zaten diskte
     await useDownloadStore.getState().enqueue(next, { permanent: false, speculative: true });
   } catch (e) {

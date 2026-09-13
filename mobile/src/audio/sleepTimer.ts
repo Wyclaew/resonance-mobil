@@ -2,6 +2,7 @@ import TrackPlayer from "react-native-track-player";
 import { create } from "zustand";
 
 import { useSettingsStore } from "../store/useSettingsStore";
+import { currentGain } from "./player";
 
 /**
  * Uyku zamanlayıcı — masaüstünde de var, mobilde daha da gerekli (telefon
@@ -28,7 +29,7 @@ export const useSleepTimer = create<SleepState>((set) => ({
     }
     if (!minutes) {
       set({ endsAt: null });
-      void TrackPlayer.setVolume(1);
+      void TrackPlayer.setVolume(currentGain());
       return;
     }
     const endsAt = Date.now() + minutes * 60_000;
@@ -45,15 +46,17 @@ async function fadeOutAndPause(): Promise<void> {
   try {
     const seconds = Math.max(0, useSettingsStore.getState().sleepFadeSeconds || 0);
     const steps = Math.min(20, Math.max(1, Math.round(seconds)));
+    const from = currentGain();
     for (let i = steps; i > 0; i--) {
-      await TrackPlayer.setVolume(i / steps);
+      await TrackPlayer.setVolume((from * i) / steps);
       await new Promise((r) => setTimeout(r, (seconds * 1000) / steps));
     }
     await TrackPlayer.pause();
   } catch (e) {
     console.error("[uyku] duraklatılamadı:", e);
   } finally {
-    // Ses seviyesi geri açılmalı, yoksa sonraki çalma sessiz sanılır.
-    await TrackPlayer.setVolume(1).catch(() => {});
+    // Ses seviyesi geri açılmalı, yoksa sonraki çalma sessiz sanılır —
+    // ama 1'e değil, parçanın eşitleme kazancına.
+    await TrackPlayer.setVolume(currentGain()).catch(() => {});
   }
 }

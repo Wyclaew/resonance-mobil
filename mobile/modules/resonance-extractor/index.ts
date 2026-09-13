@@ -32,6 +32,7 @@ interface Native {
   search(query: string, limit: number, musicOnly: boolean): Promise<Track[]>;
   playlist(playlistUrl: string, limit: number): Promise<{ name: string; tracks: Track[] }>;
   scanLocal(limit: number): Promise<Track[]>;
+  loudness(videoId: string): Promise<{ lufs: number; targetLufs: number }>;
 }
 
 const native = requireNativeModule<Native>("ResonanceExtractor");
@@ -81,3 +82,9 @@ export function pickStream(
   }
   return usable.sort((a, b) => b.bitrate - a.bitrate)[0];
 }
+
+/**
+ * YouTube'un kendi ses yüksekliği ölçümü (`trackAbsoluteLoudnessLkfs`).
+ * Masaüstü aynı değeri ffmpeg ile dosyadan ölçüyor; hedef ikisinde de −14 LUFS.
+ */
+export const loudness = (videoId: string) => native.loudness(videoId);

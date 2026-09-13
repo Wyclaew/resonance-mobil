@@ -66,11 +66,26 @@ function cleanTitle(title: string): string {
   return t.trim();
 }
 
+/**
+ * Ses yüksekliği — masaüstünde ffmpeg dosyayı ölçüyor; mobilde YouTube'un kendi
+ * ölçümü okunuyor (aynı hedef: −14 LUFS). Tepe değeri YouTube vermiyor →
+ * `peakDb: -1` bildiriliyor: `loudness.ts`'in kırpma koruması bu durumda
+ * YÜKSELTMEYİ tamamen kapatır, yalnız kısma kalır. Zaten track-player ses
+ * seviyesi 1'in üstüne çıkamıyor, yani doğru davranış bu.
+ */
+async function measureLoudness(args: Args): Promise<{ lufs: number; peakDb: number }> {
+  const sourceId = String(args.sourceId ?? "");
+  if (!/^[\w-]{11}$/.test(sourceId)) throw new Error("yalnız YouTube parçaları ölçülür");
+  const { lufs } = await Extractor.loudness(sourceId);
+  return { lufs, peakDb: -1 };
+}
+
 const COMMANDS: Record<string, (args: Args) => Promise<unknown>> = {
   music_radio: musicRadio,
   search_youtube: searchYoutube,
   music_genre_pool: musicGenrePool,
   get_lyrics: getLyrics,
+  measure_loudness: measureLoudness,
 };
 
 export async function invoke<T>(cmd: string, args: Args = {}): Promise<T> {

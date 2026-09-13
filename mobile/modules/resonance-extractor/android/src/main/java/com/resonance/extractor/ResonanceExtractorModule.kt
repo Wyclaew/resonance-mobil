@@ -153,6 +153,11 @@ class ResonanceExtractorModule : Module() {
                 .take(limit.coerceIn(1, 50))
         }
 
+        /** YouTube'un parça başına ses yüksekliği ölçümü (LUFS). */
+        AsyncFunction("loudness") { videoId: String ->
+            Loudness.measure(videoId)
+        }
+
         /**
          * Telefondaki müzik dosyaları (MediaStore). İzin JS tarafında istenir
          * (READ_MEDIA_AUDIO); izin yoksa MediaStore boş liste döner, çökmez.
