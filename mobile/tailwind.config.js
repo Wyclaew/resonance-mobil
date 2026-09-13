@@ -1,6 +1,8 @@
-/** Resonance mobil — renkler masaüstündeki `src/index.css` @theme token'larının
- *  BİREBİR kopyası (MOBILE.md §3: "aynı görsel dil"). Bileşenlerde hardcoded
- *  renk YOK; hepsi bu semantik adları kullanır. */
+/** Resonance mobil — renkler CSS değişkeni: değerleri `src/theme.ts`
+ *  (`themeVars`) kök görünümde yazar. Böylece açık/koyu tema ve vurgu rengi
+ *  uygulama yeniden başlamadan değişir. Bileşenlerde hardcoded renk YOK. */
+const c = (name) => `rgb(var(--c-${name}) / <alpha-value>)`;
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ["./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
@@ -8,21 +10,22 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        bg: "#0c0c0d",
-        surface: "#141416",
-        "surface-2": "#1c1c1f",
-        "surface-3": "#252529",
-        border: "#2a2a2e",
-        "border-strong": "#38383d",
-        text: "#e9e7e1",
-        muted: "#8d8d93",
-        faint: "#5e5e64",
-        accent: "#e0a33c",
-        "accent-dim": "#b9842f",
-        up: "#5fb87f",
-        "up-dim": "#3f7e57",
-        down: "#d4634e",
-        "down-dim": "#9a4537",
+        bg: c("bg"),
+        surface: c("surface"),
+        "surface-2": c("surface-2"),
+        "surface-3": c("surface-3"),
+        border: c("border"),
+        "border-strong": c("border-strong"),
+        text: c("text"),
+        muted: c("muted"),
+        faint: c("faint"),
+        accent: c("accent"),
+        "accent-dim": c("accent-dim"),
+        "on-accent": c("on-accent"),
+        up: c("up"),
+        "up-dim": c("up-dim"),
+        down: c("down"),
+        "down-dim": c("down-dim"),
       },
       borderRadius: { DEFAULT: "8px" },
       // Tipografi rolleri: masaüstü Inter + JetBrains Mono kullanıyor (marka
