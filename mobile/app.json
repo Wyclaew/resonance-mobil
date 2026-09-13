@@ -3,18 +3,18 @@
     "name": "Resonance",
     "slug": "resonance-mobil",
     "scheme": "resonance",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#0c0c0d",
     "newArchEnabled": true,
     "android": {
       "package": "com.resonance.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#0c0c0d",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundImage": "./assets/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -26,7 +26,8 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE"
-      ]
+      ],
+      "versionCode": 1
     },
     "plugins": [
       "expo-sqlite",
@@ -39,12 +40,28 @@
             "minSdkVersion": 26,
             "extraMavenRepos": [
               "https://jitpack.io"
-            ]
+            ],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "# NewPipeExtractor: yansıma + Rhino JS yorumlayıcısı (imza çözme) — küçültülürse çıkarım sessizce kırılır.\n-keep class org.schabi.newpipe.extractor.** { *; }\n-keep class org.mozilla.javascript.** { *; }\n-keep class org.mozilla.classfile.** { *; }\n-keep class com.resonance.extractor.** { *; }\n-dontwarn org.mozilla.javascript.**\n-dontwarn javax.script.**\n-dontwarn java.beans.**\n-dontwarn org.jsoup.**\n-dontwarn com.google.re2j.**\n-dontwarn org.slf4j.**"
           }
         }
       ],
       "expo-localization",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0c0c0d",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120,
+          "dark": {
+            "backgroundColor": "#0c0c0d",
+            "image": "./assets/splash-icon.png"
+          }
+        }
+      ],
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true
