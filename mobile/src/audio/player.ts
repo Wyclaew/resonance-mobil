@@ -8,7 +8,8 @@ import TrackPlayer, {
 
 import * as Extractor from "../../modules/resonance-extractor";
 import { cachedPath } from "../lib/downloads";
-import { findAlternative, isUnavailable } from "../lib/relink";
+import { isPlayableHere } from "../lib/localAudio";
+import { findAlternative, findStandIn, isUnavailable } from "../lib/relink";
 import { bestThumb } from "../lib/thumbs";
 import type { Track } from "../types";
 
@@ -70,6 +71,21 @@ export async function sourceFor(
   track: Track,
   opts: { preferSmall?: boolean } = {}
 ): Promise<{ url: string; local: boolean }> {
+  // Telefondaki dosya: çıkarım yok, ağ yok.
+  if (isPlayableHere(track)) return { url: track.sourceId, local: true };
+
+  // Masaüstündeki yerel dosya (yolu bu cihazda yok): YouTube'daki eşdeğerini
+  // çal ama KALICI BAĞLAMA — `source_id`'yi değiştirmek masaüstündeki
+  // parçayı bozar (orada dosya duruyor).
+  if (track.source === "local") {
+    const standIn = await findStandIn(track);
+    if (!standIn) throw new Error("bu parça başka cihazdaki bir dosya — YouTube'da eşdeğeri bulunamadı");
+    const info = await Extractor.resolve(standIn);
+    const stream = Extractor.pickStream(info.streams, { preferSmall: opts.preferSmall });
+    if (!stream) throw new Error("çalınabilir ses akışı yok");
+    return { url: stream.url, local: false };
+  }
+
   const local = await cachedPath(track.id);
   if (local) return { url: local, local: true };
 

@@ -44,6 +44,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   jobs: {},
 
   enqueue: async (track, opts = {}) => {
+    // Yerel dosya zaten diskte; başka cihazın yerel dosyası ise indirilemez.
+    if (track.source === "local") {
+      if (!opts.speculative) useToastStore.getState().show("Yerel dosya — indirmeye gerek yok", "info");
+      return;
+    }
     const existing = get().jobs[track.id];
     if (existing?.status === "iniyor" || existing?.status === "bitti") return;
     if (pending.some((p) => p.track.id === track.id)) return;

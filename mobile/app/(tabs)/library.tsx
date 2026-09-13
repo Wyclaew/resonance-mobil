@@ -62,6 +62,14 @@ export default function Library() {
     <View className="flex-1 bg-bg px-5">
       <View className="flex-row items-center justify-between">
         <Eyebrow>{`${rows.length} liste · ${trackCount} parça`}</Eyebrow>
+        <View className="flex-row gap-2">
+        <Link href="/local" asChild>
+          <Pressable hitSlop={10} className="h-7 justify-center rounded-full border border-border px-3">
+            <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+              Telefonda
+            </Text>
+          </Pressable>
+        </Link>
         <Link href="/import" asChild>
           <Pressable hitSlop={10} className="h-7 justify-center rounded-full border border-border px-3">
             <Text className="text-muted text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
@@ -69,6 +77,7 @@ export default function Library() {
             </Text>
           </Pressable>
         </Link>
+        </View>
       </View>
 
       {/* Akıllı listeler: dinleme geçmişinden türer, kalıcı satır yazmaz. */}

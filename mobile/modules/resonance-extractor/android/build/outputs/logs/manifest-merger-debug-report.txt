@@ -1,16 +1,16 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml:2:13-83
-INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml:2:13-83
+ADDED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml:2:13-83
+INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml:2:13-83
 	package
-		INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml
+		INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml
 	xmlns:android
-		ADDED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml:2:23-81
+		ADDED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml:2:23-81
 uses-sdk
-INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml reason: use-sdk injection requested
-INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml
-INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml
+INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml reason: use-sdk injection requested
+INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml
+INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml
 	android:targetSdkVersion
-		INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml
+		INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml
 	android:minSdkVersion
-		INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest12545740943745998255.xml
+		INJECTED from /Users/erne/Desktop/Resonance Mobil/mobile/modules/resonance-extractor/android/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest13613942410521988881.xml

@@ -300,7 +300,7 @@ async function prefetchNext(get: () => PlayerState): Promise<void> {
     if (!useSettingsStore.getState().prefetchEnabled) return;
     const { queue, index } = get();
     const next = queue[index + 1];
-    if (!next) return;
+    if (!next || next.source === "local") return;
     if (await cachedPath(next.id)) return; // zaten diskte
     await useDownloadStore.getState().enqueue(next, { permanent: false, speculative: true });
   } catch (e) {

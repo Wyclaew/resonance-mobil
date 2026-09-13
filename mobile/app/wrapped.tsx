@@ -1,7 +1,10 @@
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import * as Sharing from "expo-sharing";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Share, Text, View } from "react-native";
+import { captureRef } from "react-native-view-shot";
 
+import { BarMark } from "../src/components/BarMark";
 import { Eyebrow } from "../src/components/TrackRow";
 import { getDb } from "../src/lib/db";
 import { COLORS } from "../src/theme";
@@ -47,6 +50,7 @@ export default function Wrapped() {
   const now = new Date();
   const [range, setRange] = useState<"year" | "12m">("year");
   const [data, setData] = useState<Data | null>(null);
+  const cardRef = useRef<View>(null);
 
   useEffect(() => {
     void (async () => {
@@ -135,15 +139,57 @@ export default function Wrapped() {
         <ActivityIndicator color={COLORS.accent} className="mt-10" />
       ) : (
         <>
-          <Text className="text-text mt-4 text-[44px] leading-[48px]" style={{ fontFamily: "Archivo_800ExtraBold" }}>
-            {hours(d.ms)} saat
-          </Text>
-          <Text className="text-muted mt-1 text-sm">
-            {d.plays} çalma · {d.tracks} farklı parça · en çok {String(d.peakHour).padStart(2, "0")}:00
-            civarı
+          {/* Paylaşılan GÖRSEL bu kart: hikâye oranına yakın, kendi başına
+              okunur (ekranın geri kalanı olmadan anlamlı). */}
+          <View
+            ref={cardRef}
+            collapsable={false}
+            className="mt-4 rounded-lg border border-border bg-surface px-6 py-7"
+          >
+            <View className="flex-row items-center justify-between">
+              <BarMark size={22} />
+              <Text
+                className="text-faint text-[10px]"
+                style={{ fontFamily: "JetBrainsMono_500Medium", letterSpacing: 1.6 }}
+              >
+                {`RESONANCE · ${label.toUpperCase()}`}
+              </Text>
+            </View>
+            <Text
+              className="text-text mt-8 text-[56px] leading-[58px]"
+              style={{ fontFamily: "Archivo_800ExtraBold" }}
+            >
+              {hours(d.ms)}
+            </Text>
+            <Text className="text-muted text-sm">saat müzik</Text>
+
+            <View className="mt-7">
+              {d.artists.slice(0, 3).map((a, i) => (
+                <Text
+                  key={a.name}
+                  className={i === 0 ? "text-accent text-[20px]" : "text-text text-[16px]"}
+                  style={{ fontFamily: i === 0 ? "Archivo_700Bold" : "Inter_500Medium" }}
+                  numberOfLines={1}
+                >
+                  {a.name}
+                </Text>
+              ))}
+            </View>
+
+            <View className="mt-7 flex-row justify-between border-t border-border pt-4">
+              <CardStat value={String(d.tracks)} label="parça" />
+              <CardStat value={String(d.newArtists)} label="yeni sanatçı" />
+              <CardStat
+                value={d.recommended ? `%${Math.round((d.keptFromRecs / d.recommended) * 100)}` : "—"}
+                label="öneri isabeti"
+              />
+            </View>
+          </View>
+
+          <Text className="text-muted mt-3 text-xs">
+            {d.plays} çalma · en çok {String(d.peakHour).padStart(2, "0")}:00 civarı dinledin
           </Text>
 
-          <Line label="Yeni tanıştığın sanatçı" value={String(d.newArtists)} />
           <Line label="Resonance'ın önerdiği" value={String(d.recommended)} />
           <Line
             label="Önerilerden dinlediğin"
@@ -158,14 +204,21 @@ export default function Wrapped() {
           <Block title="Parçalar" rows={d.songs.map((s) => [s.name, `${s.plays}×`])} />
 
           <Pressable
-            onPress={() =>
-              void Share.share({
-                message:
-                  `Resonance ${label}: ${hours(d.ms)} saat müzik, ${d.tracks} parça, ` +
-                  `${d.newArtists} yeni sanatçı.\n` +
-                  `En çok: ${d.artists.map((a) => a.name).slice(0, 3).join(", ")}`,
-              })
-            }
+            onPress={async () => {
+              try {
+                // Kartı görsel olarak yakala → sistem paylaşım menüsü (hikâye vb.).
+                const uri = await captureRef(cardRef, { format: "png", quality: 1, result: "tmpfile" });
+                await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: "Özeti paylaş" });
+              } catch (e) {
+                console.warn("[özet] görsel paylaşılamadı, metne düşülüyor:", e);
+                await Share.share({
+                  message:
+                    `Resonance ${label}: ${hours(d.ms)} saat müzik, ${d.tracks} parça, ` +
+                    `${d.newArtists} yeni sanatçı.\n` +
+                    `En çok: ${d.artists.map((a) => a.name).slice(0, 3).join(", ")}`,
+                });
+              }
+            }}
             className="mt-8 h-11 items-center justify-center rounded bg-accent"
           >
             <Text className="text-bg text-[13px]" style={{ fontFamily: "Archivo_700Bold" }}>
@@ -227,6 +280,19 @@ function Block({ title, rows }: { title: string; rows: [string, string][] }) {
           </Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+function CardStat({ value, label }: { value: string; label: string }) {
+  return (
+    <View>
+      <Text className="text-text text-[18px]" style={{ fontFamily: "JetBrainsMono_500Medium" }}>
+        {value}
+      </Text>
+      <Text className="text-faint text-[10px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+        {label}
+      </Text>
     </View>
   );
 }

@@ -16,23 +16,37 @@ import type { Track } from "../types";
 const DURATION_TOLERANCE = 0.2;
 
 export async function findAlternative(track: Track): Promise<string | null> {
+  // ⛔ Yerel parçayı YouTube kimliğine bağlama: masaüstündeki dosyayı bozar.
+  if (track.source === "local") return null;
+  const best = await searchEquivalent(track);
+  if (!best) return null;
+  await relinkTrack(track.id, best);
+  console.log(`[alternatif] ${track.title} → ${best}`);
+  return best;
+}
+
+/**
+ * Geçici eşdeğer: bulunur ama `tracks` tablosuna YAZILMAZ. Başka cihazdaki
+ * yerel dosyayı telefonda çalmak için.
+ */
+export async function findStandIn(track: Track): Promise<string | null> {
+  return searchEquivalent(track);
+}
+
+async function searchEquivalent(track: Track): Promise<string | null> {
   const query = `${track.artist} ${track.title}`.trim();
   if (!query) return null;
   try {
     const results = await Extractor.search(query, 12, true);
-    const candidates = results
+    const best = results
       .filter((r) => r.sourceId !== track.sourceId)
       .filter(isLikelySong)
-      .filter((r) => {
+      .find((r) => {
         if (!track.durationMs || !r.durationMs) return true;
         const diff = Math.abs(r.durationMs - track.durationMs) / track.durationMs;
         return diff <= DURATION_TOLERANCE;
       });
-    const best = candidates[0];
-    if (!best) return null;
-    await relinkTrack(track.id, best.sourceId);
-    console.log(`[alternatif] ${track.title} → ${best.sourceId}`);
-    return best.sourceId;
+    return best?.sourceId ?? null;
   } catch (e) {
     console.warn("[alternatif] aranamadı:", e);
     return null;

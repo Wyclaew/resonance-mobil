@@ -153,6 +153,15 @@ class ResonanceExtractorModule : Module() {
                 .take(limit.coerceIn(1, 50))
         }
 
+        /**
+         * Telefondaki müzik dosyaları (MediaStore). İzin JS tarafında istenir
+         * (READ_MEDIA_AUDIO); izin yoksa MediaStore boş liste döner, çökmez.
+         */
+        AsyncFunction("scanLocal") { limit: Int ->
+            val context = appContext.reactContext ?: throw IllegalStateException("bağlam yok")
+            LocalAudio.scan(context, limit.coerceIn(1, 5000))
+        }
+
         /** Bir YouTube/YT Music listesinin parçaları (içe aktarma + tür havuzu). */
         AsyncFunction("playlist") { playlistUrl: String, limit: Int ->
             ensureInit()

@@ -176,6 +176,7 @@ export default function NowPlaying() {
           />
           <Chip label="Sözler" active={showLyrics} onPress={() => setShowLyrics((v) => !v)} />
           <Chip label={`Sıra · ${queue.length}`} onPress={() => router.push("/queue")} />
+          <Chip label="Ambiyans" onPress={() => router.push("/ambient")} />
           <DevicePicker />
         </ArtistActions>
 

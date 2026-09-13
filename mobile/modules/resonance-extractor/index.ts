@@ -31,6 +31,7 @@ interface Native {
   radio(videoId: string, limit: number): Promise<Track[]>;
   search(query: string, limit: number, musicOnly: boolean): Promise<Track[]>;
   playlist(playlistUrl: string, limit: number): Promise<{ name: string; tracks: Track[] }>;
+  scanLocal(limit: number): Promise<Track[]>;
 }
 
 const native = requireNativeModule<Native>("ResonanceExtractor");
@@ -53,6 +54,12 @@ export const search = (query: string, limit = 20, musicOnly = true) =>
   native.search(query, limit, musicOnly);
 
 export const playlist = (playlistUrl: string, limit = 500) => native.playlist(playlistUrl, limit);
+
+/**
+ * Telefondaki müzik dosyaları. `source = "local"`, `sourceId` = content:// adresi
+ * — masaüstündeki `localFiles.ts` ile aynı kimlik kuralı.
+ */
+export const scanLocal = (limit = 2000) => native.scanLocal(limit);
 
 /**
  * ⭐ En iyi ses akışını seç.

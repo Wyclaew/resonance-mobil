@@ -7,20 +7,20 @@ import { Eyebrow } from "../src/components/TrackRow";
 import { savePlaylistFromTracks } from "../src/lib/playlists";
 import { isLikelySong } from "../src/lib/recommender";
 import { decodePlaylist, isShareCode } from "../src/lib/share";
+import { importSpotifyPlaylist, spotifyPlaylistId } from "../src/lib/spotify";
 import { useToastStore } from "../src/store/useToastStore";
 import { COLORS } from "../src/theme";
 
 /**
  * İçe aktarma — YouTube/YT Music liste adresi ya da Resonance paylaşım kodu.
  *
- * ℹ️ Spotify masaüstünde Rust tarafında (client id/secret ile) yapılıyor;
- * mobilde henüz yok. Listeler zaten senkronla geldiği için pratikte gerekmiyor:
- * masaüstünde bir kez içe aktar, telefona kendiliğinden düşer.
+ * Spotify: masaüstündeki ANAHTARSIZ yolun aynısı (embed sayfası, ~100 şarkı).
  */
 export default function Import() {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
   const show = useToastStore((s) => s.show);
 
   async function run() {
@@ -36,6 +36,16 @@ export default function Import() {
         finish(decoded.name, added);
         return;
       }
+      if (/spotify\.com/i.test(input) && spotifyPlaylistId(input)) {
+        const { name, tracks, missed } = await importSpotifyPlaylist(input, (done, total) =>
+          setProgress(`YouTube'da eşleştiriliyor · ${done}/${total}`)
+        );
+        if (!tracks.length) throw new Error("Hiçbir şarkı YouTube'da eşleşmedi");
+        const { added } = await savePlaylistFromTracks(name, tracks);
+        if (missed) show(`${missed} şarkı eşleşmedi`, "info");
+        finish(name, added);
+        return;
+      }
       if (!/^https?:\/\//i.test(input)) {
         throw new Error("Bir liste adresi ya da RSNC1 kodu yapıştır");
       }
@@ -48,6 +58,7 @@ export default function Import() {
       setNote(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -64,8 +75,9 @@ export default function Import() {
         Liste getir
       </Text>
       <Text className="text-muted mt-2 text-sm leading-5">
-        YouTube ya da YouTube Music liste adresini yapıştır. Resonance paylaşım kodu (RSNC1…)
-        da olur — masaüstünden gönderdiğin kodlar burada açılır.
+        YouTube, YouTube Music ya da herkese açık Spotify liste adresini yapıştır. Resonance
+        paylaşım kodu (RSNC1…) da olur. Spotify'da ses gelmez: her şarkı YouTube Music'te
+        eşleştirilir (en fazla ~100 şarkı).
       </Text>
 
       <TextInput
@@ -97,6 +109,11 @@ export default function Import() {
         )}
       </Pressable>
 
+      {progress ? (
+        <Text className="text-muted mt-4 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+          {progress}
+        </Text>
+      ) : null}
       {note ? <Text className="text-down mt-4 text-xs">{note}</Text> : null}
 
       <Pressable onPress={() => router.back()} className="mt-8 items-center py-3">
