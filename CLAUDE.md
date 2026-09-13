@@ -8,9 +8,9 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum:** Faz 0/2/4 ✅, Faz 3 istemcisi hazır (kullanıcı girişi bekliyor).
-Cihazda doğrulanan: arama → çalma → arka planda devam, Keşfet + filtreler,
-oy/karma, çevrimdışı indirme + ön indirme, çapraz cihaz devam bileşenleri.
+**Durum:** Masaüstünün özellikleri taşındı, gerçek kütüphaneyle senkron çalışıyor
+(1 liste / 241 parça, ~2200 çalma geçmişi). Cihazda doğrulananlar aşağıda
+"Özellikler"de; her maddenin ölçümü commit mesajlarında.
 
 ## ⛔ Kritik kurallar
 - Türkçe konuş; kod içi yorumlar da Türkçe (masaüstü stiliyle aynı).
@@ -54,7 +54,7 @@ kimlikleri), `navigator.language` (yoksa arayüz dili HEP "en" düşüyordu).
 → `recommender.ts`, `sync/engine.ts`, `playlists.ts`, `history.ts`… **tek satır
 değişmeden** çalışır. Takma ad iki yerde tanımlı: `metro.config.js` + `tsconfig.json`.
 
-`scripts/sync-core.py` — kopyaları tazeler (24 dosya izleniyor).
+`scripts/sync-core.py` — kopyaları tazeler (28 dosya izleniyor).
 `scripts/gen-migrations.py` — masaüstünün `lib.rs` migration'larını TS'e çevirir
 (**şema tek kaynaktan**; v1–v8, 17 tablo, senkron buna dayanır).
 
@@ -67,7 +67,7 @@ npx tsc --noEmit                       # tip kontrolü
 npx expo prebuild --platform android   # android/ üretir (git'te yok)
 npx expo run:android                   # emülatöre/telefona kurar
 ```
-Emülatör: `$ANDROID_HOME/emulator/emulator -avd Pixel_10_Pro_XL`.
+Emülatör: `$ANDROID_HOME/emulator/emulator -avd Pixel_7` (1080×2400).
 Log: `adb logcat -s ReactNativeJS:V ResonanceExtractor:V`.
 ⚠️ Expo Go YETMEZ (native modül var) — dev client / gerçek build şart.
 Dev client'ı sunucuya bağlamak:
@@ -80,47 +80,61 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
 Sürümü yükseltmeden önce orayı oku.
 
 ## Mimari
-- `mobile/app/` — expo-router ekranları (Şu An · Ara · Kütüphane · İndirilenler).
-- `mobile/src/audio/` — `player.ts` (kaynak seçimi + zaman aşımı) ve `service.ts`
-  (arka plan/kilit ekranı; **hataları yutar, servis ölmez** — masaüstü dersi).
-- `mobile/src/lib/downloads.ts` — parçalı + devam edebilen indirici, adres sağlık
-  testi, LRU budama.
+- `mobile/app/` — expo-router. Sekmeler: Şu An · Keşfet · Ara · Kütüphane · İndirilenler.
+  Yığın: `settings`, `account`, `stats`, `taste`, `wrapped`, `queue`, `import`, `local`,
+  `ambient`, `playlist/[id]`, `artist/[name]`, `smart/[id]`. Derin bağlantı:
+  `adb shell am start -a android.intent.action.VIEW -d "resonance://wrapped"`.
+- `mobile/src/audio/` — `player.ts` (kaynak seçimi, zaman aşımı, **ses eşitleme**),
+  `service.ts` (arka plan/kilit ekranı, bildirimden oy; **hataları yutar, servis ölmez**),
+  `autoAdvance.ts`, `presence.ts` (now_playing/device_queue yayını), `sleepTimer.ts`.
+- `mobile/src/lib/` (mobile özel) — `downloads.ts`, `relink.ts`, `localAudio.ts`,
+  `spotify.ts`, `thumbs.ts`, `repairTracks.ts`, `backup.ts`, `webShims.ts`, `tauriShim.ts`.
 - `mobile/modules/resonance-extractor/` — Kotlin: `resolve`, `resolveMany`, `radio`,
-  `search`, `playlist`. **Sadece ham veri döndürür**; `isLikelySong`/`songCore`/
-  skorlama paylaşılan TS'te kalır (masaüstüyle aynı sonuç).
+  `search`, `playlist`, `scanLocal` (MediaStore), `loudness` (YouTube audioConfig).
+  **Sadece ham veri döndürür**; filtre/skorlama paylaşılan TS'te kalır.
+- `mobile/src/theme.ts` + `tailwind.config.js` — renkler masaüstü token'larının aynısı.
+  Yazı: **Archivo** (başlık), **Inter** (gövde, masaüstüyle ortak), **JetBrains Mono**
+  (veri). İmza: logonun 7 çubuğu (`BarMark`, yalnız çalarken hareket eder) ve listelerde
+  sol raydaki tek çubuk = karma (`KarmaBar`); karma yoksa o ray öneri gerekçesini taşır.
 - `mobile/src/db/migrations.ts` — ÜRETİLİR, elle düzenleme.
 
-## Sırada (MOBILE.md fazları)
-- **Faz 2 ✅:** oy verme (tek modülden), playlist ekranı, listeye ekleme,
-  indirme kuyruğu (tek sıra) + "yalnız Wi-Fi" + LRU kota, Ayarlar ekranı.
-  Çevrimdışı çalma cihazda doğrulandı (ikinci çalışta "yerel dosya").
-  ⚠️ İndirmeden önce `ensureTrack` ŞART: `cache.track_id` → `tracks` FK'sı var,
-  Keşfet önerisi henüz kayıtlı değil → "FOREIGN KEY constraint failed" (ölçüldü).
-  Masaüstündeki gotcha #13'ün aynısı: yazan her yol `ensureTrack`'ten geçer.
-- **Faz 3 (istemci hazır, GİRİŞ BEKLİYOR):** Hesap ekranı (`app/account.tsx`),
-  açılışta `startSync()`, `backupDb()` ile otomatik yedek. Cihazda doğrulanan:
-  Supabase'e ulaşım + hata yolu (yanlış parolayla "Invalid login credentials").
-  **Gerçek tur için kullanıcının kendi hesabıyla giriş yapması gerek.**
-  İlk tur önerisi: "Yalnız buluttan çek" (salt-okunur) → sonra "Buluttan al".
-  ℹ️ **`outbox` GEREKMEDİ**: motor su terazisi (`last_pushed`) kullanıyor —
-  OS uygulamayı push'tan önce öldürse bile satırlar `updated_at > last_pushed`
-  kaldığı için bir sonraki turda gider. (MOBILE.md §6 "gerekebilir" diyordu.)
-- **Faz 4 (çekirdek hazır):** Keşfet sekmesi, `startDiscovery` / `rerollDiscovery`,
-  kuyruk sonuna yaklaşınca tazeleme, `TARGET_QUEUE_AHEAD` **10** (masaüstünde 20 —
-  mobilde her öneri bir radyo isteği = pil + veri). Kalan: tür/ruh hali filtreleri,
-  tarz kilidi, "yalnız Wi-Fi'da önden indir".
-  ⚠️ Kuyruğu ilerletme `Event.PlaybackQueueEnded`'e **KÖRÜ KÖRÜNE BAĞLI DEĞİL**
-  (`src/audio/autoAdvance.ts`): konum beklenen süreye yakın değilse "kaynak koptu"
-  sayılır ve parça kaldığı saniyeden yeniden bağlanır — masaüstünün 35-45. saniyede
-  sessizce atlama bug'ının mobil karşılığı (CLAUDE.md v1.8.5, MOBILE.md §5.2-1).
-- **Faz 5:** ses seviyesi eşitleme (ExoPlayer `LoudnessCodecController`), ambiyans
-  ekranı, yerel dosyalar (`READ_MEDIA_AUDIO`), İstatistik/Wrapped ekranları.
-- **Eklenenler (bu turda):** ⭐ çapraz cihaz devam (`now_playing` + `device_queue`
-  yayınlama + "Devam et" bandı, DURAKLATILMIŞ kurulur), Keşfet ruh hali/tür
-  filtreleri, sıradakini **yalnız Wi-Fi'da** ön indirme (`permanent:false` → LRU'ya
-  açık), sanatçı kararları (daha çok / daha az / **önerme** — ikisi de senkronlanır),
-  uyku zamanlayıcı (kademeli kısılma).
-  ⚠️ Android'de `Alert` EN FAZLA 3 düğme gösterir; 4.'sü sessizce düşer.
-- **Kalan küçükler:** tarz kilidi (`lockedSeedArtist` motor destekliyor, UI yok),
-  "Sıradaki" kuyruk görünümü (liste modunda), içe aktarma ekranı
-  (`Extractor.playlist` hazır; senkron zaten listeleri getirdiği için düşük öncelik).
+## Ölçülerek bulunan tuzaklar (tekrar yaşama)
+- ⛔ **Supabase oturumu kalıcı değildi**: supabase-js "tarayıcı mıyım"ı `document` ile
+  anlıyor; RN'de yok → oturum bellekte, her yeniden başlatmada senkron SESSİZCE duruyordu.
+  Masaüstü `sync/client.ts` artık `storage`'ı açıkça veriyor. Kontrol: AsyncStorage'da
+  `ls:sb-…-auth-token` anahtarı olmalı.
+- ⛔ **Senkron 54 `playlist_tracks` satırını FK hatasıyla düşürüyordu** ve su terazisi
+  ilerlemiyordu: üyelikler bulutta olmayan parçalara işaret ediyor. `db.ts`'teki tetikleyici
+  yer tutucu `tracks` satırı açar (`updated_at=0` → gerçeği gelince ezer),
+  `repairTracks.ts` Wi-Fi'da doldurur. Motor artık başarısız satırın kimliğini logluyor.
+- ⚠️ İndirmeden önce `ensureTrack` ŞART (`cache.track_id` FK) — masaüstü gotcha #13.
+- ⚠️ Kuyruk ilerletme `PlaybackQueueEnded`'e körü körüne bağlı değil (`autoAdvance.ts`):
+  konum süreye yakın değilse kaynak koptu sayılır, kaldığı yerden bağlanır.
+- ⚠️ **Kapaklar bulanıktı**: YT Music boyutu adres sonuna kodluyor (`=w60-h60`), video
+  küçük resmi `mqdefault`. `thumbs.ts` büyütüyor; `maxresdefault` KULLANMA (çoğu videoda 404).
+- ⚠️ Android `Alert` EN FAZLA 3 düğme gösterir; 4.'sü sessizce düşer.
+- ⚠️ "Devam et?" diye kendiliğinden açılan bant kullanıcıyı rahatsız etti → kaldırıldı.
+  Çapraz cihaz devam masaüstündeki gibi AÇIK SEÇİM: `DevicePicker` (yalnız başka cihazın
+  kuyruğu varsa görünür, DURAKLATILMIŞ kurar).
+- ⚠️ **Yerel parçalar**: `id = local:<uri>`, `sourceId` = content:// adresi (masaüstü kuralı).
+  Masaüstünün yerel dosyası telefonda YOK → YouTube eşdeğeri çalınır ama `source_id`
+  YENİDEN BAĞLANMAZ (masaüstündeki parçayı bozardı). Yerel parça indirilmez/önden indirilmez.
+- ⚠️ **Ses eşitleme** YouTube'un kendi ölçümüyle (`trackAbsoluteLoudnessLkfs`, hedef −14 —
+  masaüstünün ffmpeg değeriyle aynı). track-player sesi 1'i aşamaz → yalnız kısma
+  (`peakDb: -1` bildirilir, `loudness.ts` yükseltmeyi kapatır). Uyku zamanlayıcı 1'e değil
+  `currentGain()`'e döner. Soğuk açılışta ilk çağrı zaman aşımına düşebiliyor → Kotlin bir
+  kez yeniden dener.
+- ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
+
+## Özellikler (cihazda doğrulandı)
+Arama (yazarken, 450 ms) · çalma + arka plan + bildirimden oy · Keşfet (filtreler, başka
+tarz, tarz kilidi, sonsuz kuyruk) · oy/karma · karma karışık · listeler (ekle/sil, akıllı
+listeler) · sanatçı sayfası · parça sayfası (uzun basış) · sıra · şarkı sözleri · indirme
+(tek sıra, yalnız Wi-Fi, LRU) + sıradakini Wi-Fi'da önden indirme · senkron (+ Cihazlar) ·
+istatistik · zevk profili · yıllık özet (görsel paylaşım) · içe aktarma (YouTube/YT Music,
+Spotify anahtarsız ~100 şarkı, RSNC1 kodu) · telefondaki müzikler · ambiyans · uyku
+zamanlayıcı · alternatif kaynak (silinen video) · ses eşitleme.
+
+## Bilerek yapılmayanlar
+- Açılış turu (tek, uygulamayı bilen kullanıcı). Mini oynatıcı (mobilde karşılığı bildirim).
+- Spotify API anahtarlı yol (anahtarlar senkronlanmıyor; anahtarsız yol yeterli).
