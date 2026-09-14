@@ -14,13 +14,18 @@ import type { QueueItem } from "../types";
  *  2. KALDIĞIN YERDEN DEVAM (cihaza): `resumeState` ayarı — masaüstüyle aynı
  *     biçim. Keşfet'se TÜM kuyruk, değilse çalanın çevresindeki pencere.
  *
- * Arka plana geçerken `force` ile bir kez yazılır: OS uygulamayı öldürebilir
- * ve son durum kaybolur (MOBILE.md §1).
+ * ⚠️ Kullanıcı bildirdi: "Keşfet'i başlatıp dinliyorum, uygulamayı kapatıp
+ * açınca hatırlamıyor." Emülatörde yeniden üretilemedi; o yüzden yazma
+ * fırsatları çoğaltıldı: yalnız 10 sn'lik ilerleme değil, parça değişimi,
+ * duraklatma, kuyruk değişimi (yeni Keşfet partisi) ve arka plana geçiş
+ * anında da ZORLA yazılır. Android bazı cihazlarda (Xiaomi) süreci uyarısız
+ * öldürüyor; son durum en fazla birkaç saniye eski kalır.
  */
 let installed = false;
 let lastSave = 0;
-/** Kuyruk değişmedikçe JSON yeniden üretilmez (uzun listede her 10 sn 60 KB olmasın). */
-let bodyCache: { queue: QueueItem[]; index: number; json: string } | null = null;
+let lastPosition = 0;
+/** Kuyruk değişmedikçe JSON yeniden üretilmez (uzun listede her yazmada 60 KB olmasın). */
+let bodyCache: { queue: QueueItem[]; index: number; radio: string; json: string } | null = null;
 
 const SAVE_EVERY_MS = 10_000;
 /** Normal kuyrukta saklanan pencere: çalanın 10 öncesi, 90 sonrası. */
@@ -32,21 +37,46 @@ export function installPresence(): void {
   installed = true;
 
   TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, ({ position }) => {
-    void publish(Math.round(position * 1000), false);
+    lastPosition = Math.round(position * 1000);
+    void publish(lastPosition, false);
+  });
+
+  // Parça değişti / duraklatıldı → hemen yaz.
+  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, () => void persistNow());
+  TrackPlayer.addEventListener(Event.PlaybackState, ({ state }) => {
+    if (state === State.Paused || state === State.Stopped) void persistNow();
   });
 
   AppState.addEventListener("change", (state) => {
-    if (state === "active") return;
-    void TrackPlayer.getProgress()
-      .then(({ position }) => publish(Math.round(position * 1000), true))
-      .catch(() => {});
+    if (state !== "active") void persistNow();
   });
+
+  // Kuyruk değişimi (yeni Keşfet partisi, reroll, sıra düzenleme): ilk ilerleme
+  // olayını beklemeden yaz — hemen kapatılırsa eski kuyruk geri gelmesin.
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  usePlayerStore.subscribe((s, prev) => {
+    if (s.queue === prev.queue && s.index === prev.index && s.radioPlaylistId === prev.radioPlaylistId) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => void persistNow(), 1500);
+  });
+}
+
+async function persistNow(): Promise<void> {
+  const st = usePlayerStore.getState();
+  if (!st.current) return;
+  const pos = await TrackPlayer.getProgress()
+    .then((p) => Math.round(p.position * 1000))
+    .catch(() => lastPosition);
+  await publish(pos > 0 ? pos : st.pendingStartMs || lastPosition, true);
 }
 
 function resumeBody(): string | null {
   const st = usePlayerStore.getState();
   if (!st.current || !st.queue.length) return null;
-  if (bodyCache && bodyCache.queue === st.queue && bodyCache.index === st.index) return bodyCache.json;
+  const radioKey = `${st.radioActive}|${st.radioPlaylistId}|${st.shuffleMode}|${st.repeat}|${st.lockedSeedArtist}`;
+  if (bodyCache && bodyCache.queue === st.queue && bodyCache.index === st.index && bodyCache.radio === radioKey) {
+    return bodyCache.json;
+  }
   const discovery = st.radioActive && st.radioPlaylistId === DISCOVERY_ID;
   let json: string;
   if (discovery) {
@@ -56,6 +86,8 @@ function resumeBody(): string | null {
       queueIndex: st.index,
       seedArtists: st.discoverySeedArtists,
       filters: st.discoveryFilters,
+      lockedSeedArtist: st.lockedSeedArtist,
+      repeat: st.repeat,
     });
   } else {
     const from = Math.max(0, st.index - WINDOW_BEFORE);
@@ -64,11 +96,16 @@ function resumeBody(): string | null {
       mode: "queue",
       queue: slice,
       queueIndex: st.index - from,
+      // Akıllı karışık (liste radyosu) da geri gelsin — eskiden düz kuyruğa dönüyordu.
+      radioActive: st.radioActive,
+      radioPlaylistId: st.radioPlaylistId,
+      shuffleMode: st.shuffleMode,
+      repeat: st.repeat,
       // Masaüstü tek parça biçimini okur — geriye dönük uyum için ikisi birden.
       track: st.current,
     });
   }
-  bodyCache = { queue: st.queue, index: st.index, json };
+  bodyCache = { queue: st.queue, index: st.index, radio: radioKey, json };
   return json;
 }
 
@@ -80,7 +117,7 @@ async function publish(positionMs: number, force: boolean): Promise<void> {
     lastSave = now;
     const body = resumeBody();
     if (body) {
-      const payload = `${body.slice(0, -1)},"positionMs":${positionMs}}`;
+      const payload = `${body.slice(0, -1)},"positionMs":${positionMs},"savedAt":${now}}`;
       void useSettingsStore.getState().update("resumeState", payload);
     }
   }

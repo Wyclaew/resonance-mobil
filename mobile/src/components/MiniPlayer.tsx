@@ -1,10 +1,21 @@
 import { router, useSegments } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { useProgress } from "react-native-track-player";
-import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  FadeInDown,
+  FadeOutDown,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
+
+import { hapticTap } from "../lib/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useT } from "../lib/i18n.mobile";
+import { useOverlay } from "../store/useOverlay";
 import { usePlayback } from "../store/usePlayback";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useColors } from "../theme";
@@ -31,15 +42,18 @@ export function MiniPlayer() {
   const loading = usePlayerStore((s) => s.loading);
   const playing = usePlayback((s) => s.playing);
   const buffering = usePlayback((s) => s.buffering);
-  if (!current || HIDDEN_ON.has(segments[0] ?? "")) return null;
+  const sheetOpen = useOverlay((s) => s.sheets > 0);
+  const { gesture: swipe, style: dragStyle } = useSwipe();
+  if (!current || sheetOpen || HIDDEN_ON.has(segments[0] ?? "")) return null;
   const inTabs = segments[0] === "(tabs)";
   const bottom = inTabs ? TAB_BAR_HEIGHT + insets.bottom : insets.bottom;
 
   return (
+    <GestureDetector gesture={swipe}>
     <Animated.View
       entering={FadeInDown.duration(220)}
       exiting={FadeOutDown.duration(160)}
-      style={{ position: "absolute", left: 8, right: 8, bottom: bottom + 6, height: MINI_PLAYER_HEIGHT - 8 }}
+      style={[{ position: "absolute", left: 8, right: 8, bottom: bottom + 6, height: MINI_PLAYER_HEIGHT - 8 }, dragStyle]}
     >
       <Pressable
         onPress={() => router.push("/player")}
@@ -87,7 +101,42 @@ export function MiniPlayer() {
         <ProgressLine />
       </Pressable>
     </Animated.View>
+    </GestureDetector>
   );
+}
+
+/**
+ * Kaydırma: sola = sonraki, sağa = önceki, yukarı = tam ekran oynatıcı.
+ * Dokunma hâlâ çalışsın diye hareket ancak belirgin kaydırmada devreye girer.
+ */
+function useSwipe() {
+  const dx = useSharedValue(0);
+  const next = () => {
+    hapticTap();
+    void usePlayerStore.getState().next("next");
+  };
+  const prev = () => {
+    hapticTap();
+    void usePlayerStore.getState().previous();
+  };
+  const open = () => router.push("/player");
+  const gesture = Gesture.Pan()
+    .activeOffsetX([-18, 18])
+    .activeOffsetY([-18, 18])
+    .onUpdate((e) => {
+      dx.value = Math.max(-80, Math.min(80, e.translationX * 0.6));
+    })
+    .onEnd((e) => {
+      if (e.translationY < -40 && Math.abs(e.translationY) > Math.abs(e.translationX)) runOnJS(open)();
+      else if (e.translationX < -60) runOnJS(next)();
+      else if (e.translationX > 60) runOnJS(prev)();
+      dx.value = withSpring(0, { damping: 18, stiffness: 220 });
+    })
+    .onFinalize(() => {
+      dx.value = withSpring(0, { damping: 18, stiffness: 220 });
+    });
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: dx.value }] }));
+  return { gesture, style };
 }
 
 /** Alt kenardaki ince ilerleme çizgisi — kendi aboneliği, üst bileşeni yormaz. */

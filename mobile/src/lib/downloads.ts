@@ -11,14 +11,40 @@
 import { Directory, File, FileMode, Paths } from "expo-file-system";
 
 import * as Extractor from "../../modules/resonance-extractor";
-import type { AudioStreamInfo, StreamQuality } from "../../modules/resonance-extractor";
+import type { AudioStreamInfo, ResolvedTrack, StreamQuality } from "../../modules/resonance-extractor";
 import { invalidateUrl, resolveCached } from "../audio/urlCache";
 import { getDb } from "./db";
 import { ensureTrack } from "./playlists";
+import { findAlternative, isUnavailable } from "./relink";
 import type { Track } from "../types";
 
 const CHUNK = 1024 * 1024; // 1 MB
 const MAX_RETRY = 3;
+/** Tek parça isteği bu sürede bitmezse iptal + yeniden dene (takılan bağlantı sonsuza dek beklemesin). */
+const CHUNK_TIMEOUT_MS = 30_000;
+
+/** Adres/format kısıtlı (403/410) — aynı adresle yeniden denemek boşuna. */
+class RestrictedError extends Error {}
+
+/** Ağ yok / bağlantı koptu — indirme "başarısız" değil, bağlantı gelince devam. */
+export class NetworkDownError extends Error {}
+
+const NETWORK_HINTS = [
+  "network request failed",
+  "unable to resolve host",
+  "unknownhost",
+  "failed to connect",
+  "timeout",
+  "zaman aşımı",
+  "aborted",
+  "software caused connection abort",
+];
+
+export function isNetworkError(e: unknown): boolean {
+  if (e instanceof NetworkDownError) return true;
+  const text = String(e instanceof Error ? e.message : e).toLowerCase();
+  return NETWORK_HINTS.some((h) => text.includes(h));
+}
 
 export interface DownloadProgress {
   bytes: number;
@@ -45,31 +71,54 @@ function extensionFor(stream: AudioStreamInfo): string {
  * SON parçasını iste. Kısıtlı adres 403 verir, sağlam adres 206 — maliyeti
  * ~0.1 sn. Mobilde ayrıca veri kotası açısından değerli: boşa 1 MB inmez.
  */
-async function urlIsHealthy(url: string, contentLength: number): Promise<boolean> {
-  if (contentLength <= 2048) return true;
+async function urlHealth(url: string, contentLength: number): Promise<string | null> {
+  if (contentLength <= 2048) return null;
   try {
     const res = await fetch(url, {
       headers: { Range: `bytes=${contentLength - 1024}-${contentLength - 1}` },
     });
-    return res.status === 206 || res.status === 200;
-  } catch {
-    return false;
+    return res.status === 206 || res.status === 200 ? null : `HTTP ${res.status}`;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
 }
 
-async function fetchRange(url: string, from: number, to: number): Promise<Uint8Array> {
+async function fetchRange(url: string, from: number, to: number, signal?: AbortSignal): Promise<Uint8Array> {
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_RETRY; attempt++) {
+    if (signal?.aborted) throw new Error("indirme iptal edildi");
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), CHUNK_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { headers: { Range: `bytes=${from}-${to}` } });
+      const res = await fetch(url, { headers: { Range: `bytes=${from}-${to}` }, signal: ctl.signal });
+      if (res.status === 403 || res.status === 410) throw new RestrictedError(`HTTP ${res.status}`);
+      // 200 = sunucu aralığı yok saydı ve dosyanın TAMAMINI gönderiyor: baştan
+      // değilsek o gövdeyi araya yazmak dosyayı bozar.
+      if (res.status === 200 && from > 0) throw new Error("sunucu aralık isteğini yok saydı (HTTP 200)");
       if (res.status !== 206 && res.status !== 200) throw new Error(`HTTP ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     } catch (e) {
+      if (e instanceof RestrictedError) throw e;
       lastError = e;
-      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
     }
   }
-  throw new Error(`parça indirilemedi (${from}-${to}): ${String(lastError)}`);
+  const msg = `parça indirilemedi (${from}-${to}): ${String(lastError instanceof Error ? lastError.message : lastError)}`;
+  throw isNetworkError(lastError) ? new NetworkDownError(msg) : new Error(msg);
+}
+
+/**
+ * Tercih sırası: seçilen kalite önce, sonra diğer İLERLEMELİ akışlar bit hızına
+ * göre. Bir format kısıtlıysa (403) diğeri çoğu zaman iniyor.
+ */
+function orderStreams(info: ResolvedTrack, quality: StreamQuality): AudioStreamInfo[] {
+  const first = Extractor.pickStream(info.streams, quality);
+  const rest = info.streams
+    .filter((s) => s.isProgressive && !!s.url && s !== first)
+    .sort((a, b) => b.bitrate - a.bitrate);
+  return first ? [first, ...rest] : rest;
 }
 
 export interface DownloadResult {
@@ -98,20 +147,65 @@ export async function downloadTrack(
   // `ensureTrack`'ten geçmeli.
   await ensureTrack(track);
   const trackId = track.id;
-  const videoId = track.sourceId;
-  const info = await resolveCached(videoId);
-  const stream = Extractor.pickStream(info.streams, opts.quality ?? "high");
-  if (!stream) throw new Error("çalınabilir ses akışı yok");
+  const quality = opts.quality ?? "high";
+  let videoId = track.sourceId;
 
-  const total = stream.contentLength;
-  if (total > 0 && !(await urlIsHealthy(stream.url, total))) {
-    invalidateUrl(videoId);
-    throw new Error("adres kısıtlı (sağlık testi başarısız)");
+  let info: ResolvedTrack;
+  try {
+    info = await resolveCached(videoId);
+  } catch (e) {
+    if (isNetworkError(e)) throw new NetworkDownError(String(e instanceof Error ? e.message : e));
+    // ⚠️ BUG'DI (kullanıcı raporu: "Lost on You", "Wicked Game" indirilemedi):
+    // video YouTube'da "not available". Çalma yolu bu durumda aynı şarkının
+    // başka yüklemesine bağlanıyordu, indirme ise doğrudan hata veriyordu.
+    if (!isUnavailable(e)) throw e;
+    const alternative = await findAlternative(track);
+    if (!alternative) throw new Error("video kullanılamıyor ve eşdeğer yükleme bulunamadı");
+    videoId = alternative;
+    info = await resolveCached(videoId);
   }
 
-  const file = new File(audioDir(), `${videoId}.${extensionFor(stream)}`);
+  // Kısıtlı adres (403): önce diğer formatı dene, olmazsa adresi TAZE çöz ve
+  // bir tur daha. Eskiden ilk 403'te pes ediliyordu.
+  let lastError: unknown = new Error("çalınabilir ses akışı yok");
+  for (let round = 0; round < 2; round++) {
+    for (const stream of orderStreams(info, quality).slice(0, 3)) {
+      try {
+        return await downloadStream(trackId, videoId, stream, opts);
+      } catch (e) {
+        if (!(e instanceof RestrictedError)) throw e;
+        lastError = e;
+        console.warn(`[indirme] itag ${stream.itag} kısıtlı (${e.message}) — sıradaki format`);
+      }
+    }
+    invalidateUrl(videoId);
+    info = await resolveCached(videoId);
+  }
+  throw new Error(`adres kısıtlı: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+async function downloadStream(
+  trackId: string,
+  videoId: string,
+  stream: AudioStreamInfo,
+  opts: { permanent?: boolean; onProgress?: (p: DownloadProgress) => void; signal?: AbortSignal }
+): Promise<DownloadResult> {
+  // İçerik uzunluğu bilinmiyorsa (0 / -1) uzunluksuz kipte parça parça ilerlenir.
+  // ⚠️ BUG'DI: -1 geldiğinde döngü hiç dönmüyor, 0 baytlık "başarılı" indirme yazılıyordu.
+  const total = stream.contentLength > 0 ? stream.contentLength : 0;
+  const unhealthy = total > 0 ? await urlHealth(stream.url, total) : null;
+  if (unhealthy?.startsWith("HTTP 403") || unhealthy?.startsWith("HTTP 410")) throw new RestrictedError(unhealthy);
+  if (unhealthy && isNetworkError(unhealthy)) throw new NetworkDownError(unhealthy);
+
+  // Dosya adında itag var: kalite değişince aynı adla başka formatın yarım
+  // dosyasının üstüne devam edilip dosya bozulmasın.
+  const file = new File(audioDir(), `${videoId}.${stream.itag}.${extensionFor(stream)}`);
   let written = file.exists ? (file.size ?? 0) : 0;
-  if (total > 0 && written >= total) {
+  if (total > 0 && written > total) {
+    file.delete();
+    written = 0;
+  }
+  if (total > 0 && written === total) {
     await recordCache(trackId, file.uri, written, stream.format, opts.permanent ?? false);
     return { path: file.uri, bytes: written, format: stream.format };
   }
@@ -125,7 +219,7 @@ export async function downloadTrack(
     while (total === 0 || written < total) {
       if (opts.signal?.aborted) throw new Error("indirme iptal edildi");
       const to = total > 0 ? Math.min(written + CHUNK, total) - 1 : written + CHUNK - 1;
-      const chunk = await fetchRange(stream.url, written, to);
+      const chunk = await fetchRange(stream.url, written, to, opts.signal);
       if (chunk.length === 0) break;
       handle.writeBytes(chunk);
       written += chunk.length;
@@ -135,6 +229,7 @@ export async function downloadTrack(
   } finally {
     handle.close();
   }
+  if (written === 0) throw new Error("boş dosya indi");
 
   await recordCache(trackId, file.uri, written, stream.format, opts.permanent ?? false);
   return { path: file.uri, bytes: written, format: stream.format };

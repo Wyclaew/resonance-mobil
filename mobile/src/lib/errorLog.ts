@@ -7,7 +7,7 @@
  */
 export interface LogEntry {
   at: number;
-  level: "error" | "warn";
+  level: "error" | "warn" | "info";
   text: string;
 }
 
@@ -40,6 +40,13 @@ export function installErrorCapture(): void {
   installed = true;
   const origError = console.error.bind(console);
   const origWarn = console.warn.bind(console);
+  const origLog = console.log.bind(console);
+  // Etiketli bilgi satırları da ("[devam] …", "[audio] …") — hata olmayan ama
+  // "ne oldu?" sorusunu cevaplayan olaylar (geri yükleme, geçiş) rapora girsin.
+  console.log = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].startsWith("[")) push("info", args);
+    origLog(...args);
+  };
   console.error = (...args: unknown[]) => {
     push("error", args);
     origError(...args);

@@ -8,7 +8,7 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum (v1.0.0):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
+**Durum (v1.0.1):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
 ayarlar, veri/yedek, istatistik/zevk/özet, açık tema + vurgu rengi, TR/EN). Sürüm APK'sı
 R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı aşağıda ayrı yazılı.
 
@@ -187,6 +187,30 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
   anahtar gerekir, APK'dan okunur). Rapor alıcı/konu/gövde dolu posta uygulamasında
   açılır; hata bildirimlerinde "Bildir", Sorun giderme'de ve hata ekranında düğme.
   Son 80 `console.error/warn` + yakalanmayan hatalar `lib/errorLog.ts` halka tamponunda.
+- ⛔ **İndirme silinmiş/bölgede kapalı videoda hep başarısızdı** (kullanıcı raporu: "Lost on You",
+  "Wicked Game" → NewPipe `UNPLAYABLE: This video is not available`). Çalma yolu alternatif
+  yüklemeye bağlanıyordu, indirme bağlanmıyordu. `downloads.ts` artık: kullanılamaz → `findAlternative`;
+  403 → sıradaki format, sonra TAZE adresle bir tur daha; parça başına 30 sn zaman aşımı;
+  ağ hatası → iş BEKLER, bağlantı gelince kaldığı bayttan sürer. Dosya adında itag var
+  (kalite değişince başka formatın yarım dosyasına devam edilip bozulmasın).
+- ℹ️ Ölçüm (`spike/newpipe/DlProbe.java`): tek istekte tam indirme ~31 KB/s'ye yavaşlatılıyor
+  (2,8 MB = 90 sn), 1 MB'lık aralık istekleri ~4 MB/s. Parçalı indirme bu yüzden de şart.
+- ⛔ **Yer tutucular günlerce isimsiz/kapaksız kaldı**: onarım açılış başına 8 parça deniyordu
+  ve çözülemeyenler her turda sorgunun başına geldiği için aynı 8'de takılıyordu. Artık tur
+  bitene kadar sürer (≤240), başarısızlar oturumda atlanır, oEmbed yedeği var (bölge kısıtı
+  yok), senkron sonrası ve Wi-Fi'a geçince yeniden koşar; çalınan yer tutucu anında dolar.
+- ⛔ **Çevrimdışıyken üç parça art arda "çalınamadı" diye atlanıp çalma duruyordu** (rapor:
+  `UnknownHostException`). Ağ hatası parçanın suçu değil: sırada indirilmiş parça varsa ona
+  geçilir, yoksa bağlantı gelince (ya da 20 sn'de bir) aynı parça aynı yerden denenir.
+- ⚠️ **Alt sayfanın son satırları mini oynatıcının arkasında kalıyordu** (Android 15+ kenardan
+  kenara: modal penceresi gezinme çubuğunun altına inmiyor). `Modal navigationBarTranslucent`
+  + sayfa açıkken mini oynatıcı gizli (`useOverlay`).
+- ⚠️ **"Keşfet'i kapatıp açınca hatırlamıyor"** (kullanıcı, Xiaomi). Emülatörde 4 yolla
+  (zorla durdurma, yeniden kurma, son uygulamalardan kaydırma, yeni parti + kaydırma)
+  YENİDEN ÜRETİLEMEDİ. Önlem: `presence.ts` parça değişimi/duraklatma/kuyruk değişimi/arka
+  plan anında ZORLA yazar (eskiden yalnız 10 sn'lik ilerleme); akıllı karışık, tekrar, tarz
+  kilidi de saklanır; geri yükleme `[devam]` logu ve hata raporunda "Kayıtlı devam" satırı var.
+  Tekrar olursa açılıştan hemen sonra rapor iste.
 - ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
 
 ## Özellikler
@@ -196,12 +220,15 @@ uygulama içi ve medya tuşuyla "sonraki" ★ · Keşfet başlatma ★ · oy: "+
 süresi, geri al ★ · koyu/açık tema anında ★ · otomatik + elle yedek (`VACUUM INTO`) ★ ·
 ana sayfa/Keşfet/oynatıcı/ayar ekranları ★ · kapat-aç sonrası Keşfet sırası geri geliyor ★ ·
 medya bildirimine dokununca oynatıcı ★ · rapor düğmesi posta uygulamasını açıyor ★ (dolu
-taslak emülatörde görülemedi: Gmail'de hesap yok) · önceki turlardan: indirme (Wi-Fi, LRU),
+taslak emülatörde görülemedi: Gmail'de hesap yok) · silinmiş videonun indirmesi alternatif
+yüklemeyle ★ · geri yükleme logu ★ · mini oynatıcıda kaydırma (geliştirme sürümü) · alt sayfa
+tam ekran + mini oynatıcı gizli · önceki turlardan: indirme (Wi-Fi, LRU),
 senkron, telefondaki müzik, ses eşitleme, Spotify içe aktarma, özet görsel paylaşımı.
 
 **Yazıldı, tip denetimli, cihazda henüz uçtan uca denenmedi:** tekrar/karışık kipleri,
 akıllı karışık öneri serpiştirme, "böyle devam et", sıra düzenleme, uyku "şarkı bitince",
-liste yeniden adlandır/sırala/toplu indir/paylaş, sözden arama,
+liste yeniden adlandır/sırala/toplu indir/paylaş, sözden arama, çevrimdışı atlama/bekleme,
+indirmenin ağ gelince sürmesi, yer tutucu onarımının oEmbed yedeği,
 JSON dışa/içe aktarma, yedekten geri yükleme, bağlantı testi, İngilizce arayüz,
 açılış rehberi, hesap akışları (kayıt, şifre sıfırlama, ilk senkron yönü).
 

@@ -12,6 +12,7 @@ import { gainForTrack } from "../lib/loudness";
 import { isPlayableHere } from "../lib/localAudio";
 import { getMobileSettings, onCellular } from "../lib/mobileSettings";
 import { findAlternative, findStandIn, isUnavailable } from "../lib/relink";
+import { fillIfPlaceholder } from "../lib/repairTracks";
 import { bestThumb } from "../lib/thumbs";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { getPalette } from "../theme";
@@ -162,6 +163,9 @@ export async function sourceFor(track: Track): Promise<{ url: string; local: boo
   let info;
   try {
     info = await resolveCached(track.sourceId);
+    // Senkronun açtığı başlıksız yer tutucu çalınıyorsa, çözümden gelen meta
+    // veriyi hemen yaz — onarım turunu beklemeden listede adı/kapağı görünsün.
+    if (!track.title) void fillIfPlaceholder(track.id, info).catch(() => {});
   } catch (e) {
     // Video silinmiş/engellenmişse parçayı ÖLDÜRME: aynı şarkının başka
     // yüklemesini bul ve kalıcı olarak ona bağlan (lib/relink.ts).
@@ -213,8 +217,14 @@ export async function startItem(
   await setupAudio();
   const { url, local } = await withTimeout(sourceFor(item), 20_000, "adres çözümü");
   if (mine !== loadToken) return false;
+  // Yer tutucu (başlıksız) parça: bildirim boş kalmasın, çözümden gelen adı kullan.
+  let shown = item;
+  if (!item.title && !local) {
+    const info = await resolveCached(item.sourceId).catch(() => null);
+    if (info?.title) shown = { ...item, title: info.title, artist: info.artist, thumbnail: info.thumbnail ?? item.thumbnail };
+  }
   await TrackPlayer.reset();
-  await TrackPlayer.add(toRntp(item, url));
+  await TrackPlayer.add(toRntp(shown, url));
   loadedUid = item.uid;
   await applyLoudness(item);
   if (opts.startMs && opts.startMs > 0) await TrackPlayer.seekTo(opts.startMs / 1000);

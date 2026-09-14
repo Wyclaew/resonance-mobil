@@ -34,6 +34,19 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
 }
 
+/** "Kapatıp açınca hatırlamıyor" gibi raporlar için: cihazda ne kayıtlı? */
+function resumeSummary(raw: string): string {
+  if (!raw) return "yok";
+  try {
+    const r = JSON.parse(raw) as { mode?: string; queue?: unknown[]; queueIndex?: number; savedAt?: number };
+    return `${r.mode ?? "tek parça"} · ${(r.queueIndex ?? 0) + 1}/${r.queue?.length ?? 1} · ${
+      r.savedAt ? new Date(r.savedAt).toISOString() : "zamanı yok"
+    } · ${Math.round(raw.length / 1024)} KB`;
+  } catch {
+    return `okunamadı (${raw.length} karakter)`;
+  }
+}
+
 export async function buildReport(opts: { error?: string; steps?: DiagStep[] } = {}): Promise<string> {
   const c = (Platform.constants ?? {}) as { Brand?: string; Model?: string; Release?: string; Manufacturer?: string };
   const net = await withTimeout(
@@ -63,6 +76,7 @@ export async function buildReport(opts: { error?: string; steps?: DiagStep[] } =
     p.current ? `Çalan: ${p.current.artist} — ${p.current.title} (${p.current.id})` : "Çalan: yok",
     `Sıra: ${p.index + 1}/${p.queue.length} · radyo: ${p.radioActive ? (p.radioPlaylistId ?? "?") : "kapalı"} · karışık: ${p.shuffleMode} · tekrar: ${p.repeat}`,
     `Durum: ${p.loading ? "yükleniyor" : "hazır"}${p.error ? ` · hata: ${p.error}` : ""}`,
+    `Kayıtlı devam: ${resumeSummary(s.resumeState)}`,
     "",
     "── Ayarlar ──",
     `dil ${s.language} · tema ${s.theme} · kalite ${s.audioQuality} · eşitleme ${s.normalizeVolume ? "açık" : "kapalı"} · önden indirme ${s.prefetchEnabled ? "açık" : "kapalı"}`,
@@ -83,7 +97,9 @@ export async function buildReport(opts: { error?: string; steps?: DiagStep[] } =
   const logs = recentLogs().slice(-40);
   if (logs.length) {
     lines.push("── Son kayıtlar ──");
-    for (const l of logs) lines.push(`${new Date(l.at).toISOString().slice(11, 19)} ${l.level === "error" ? "E" : "W"} ${l.text}`);
+    for (const l of logs) {
+      lines.push(`${new Date(l.at).toISOString().slice(11, 19)} ${l.level === "error" ? "E" : l.level === "warn" ? "W" : "I"} ${l.text}`);
+    }
   }
   return lines.join("\n");
 }

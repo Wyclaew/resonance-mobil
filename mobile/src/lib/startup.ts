@@ -4,6 +4,7 @@ import { prewarmUrls } from "../audio/urlCache";
 import { autoBackup } from "./dbBackup";
 import { getDb } from "./db";
 import { pruneCache } from "./downloads";
+import { onTracksRepaired, repairPlaceholderTracks } from "./repairTracks";
 import { t } from "./i18n.mobile";
 import { getSupabase, wasSignOutIntentional } from "./sync/client";
 import { onRemoteApplied } from "./sync/engine";
@@ -24,8 +25,22 @@ export function runStartupTasks(): void {
   void usePlaylistStore.getState().refresh();
   void useDownloadStore.getState().refresh();
   void useCovers.getState().refresh();
-  // Başka cihazdan liste geldiyse kütüphane tazelensin.
-  onRemoteApplied(() => void usePlaylistStore.getState().refresh());
+  // Başka cihazdan liste geldiyse kütüphane tazelensin; senkron yeni yer tutucu
+  // açmış olabilir → kısa bir gecikmeyle onarım turu (Wi-Fi'da, turda sınırlı).
+  let repairTimer: ReturnType<typeof setTimeout> | null = null;
+  onRemoteApplied(() => {
+    void usePlaylistStore.getState().refresh();
+    if (repairTimer) clearTimeout(repairTimer);
+    repairTimer = setTimeout(() => void repairPlaceholderTracks(), 8000);
+  });
+  onTracksRepaired(() => {
+    void usePlaylistStore.getState().refresh();
+    void useCovers.getState().refresh();
+  });
+  // Wi-Fi'a geçince bekleyen onarım sürsün (yeni kurulumda ilk senkron mobil veride olabilir).
+  Network.addNetworkStateListener((s) => {
+    if (s.type === Network.NetworkStateType.WIFI) void repairPlaceholderTracks();
+  });
 
   // Kaldığın yerden devam: kuyruk duraklatılmış gelir, adresi şimdiden ısıtılır.
   usePlayerStore.getState().restore();

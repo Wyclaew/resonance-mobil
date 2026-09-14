@@ -1,3 +1,4 @@
+import * as Network from "expo-network";
 import TrackPlayer, { State } from "react-native-track-player";
 import { create } from "zustand";
 
@@ -5,13 +6,15 @@ import * as engine from "../audio/player";
 import { useSleepTimer } from "../audio/sleepTimer";
 import { prewarmUrls } from "../audio/urlCache";
 import type { RemoteQueue } from "../lib/deviceQueue";
-import { cachedPath } from "../lib/downloads";
+import { cachedPath, isNetworkError } from "../lib/downloads";
 import { recordPlay } from "../lib/history";
 import { t } from "../lib/i18n.mobile";
+import { isPlayableHere } from "../lib/localAudio";
 import { premeasure } from "../lib/loudness";
 import { noteListen } from "../lib/mood";
 import { PREF_MORE, setArtistPref } from "../lib/prefs";
 import { onRelinked } from "../lib/relink";
+import { onMetaFilled } from "../lib/repairTracks";
 import {
   getRecommendations,
   recordRecommended,
@@ -161,6 +164,28 @@ function toRecItem(r: Recommendation, playlistId: string): QueueItem {
   return { ...toItem(r, playlistId), isRecommendation: true };
 }
 
+/** Bağlantı geri gelince bir kez çağır (bekleyen tek dinleyici; yenisi eskisinin yerini alır). */
+let onlineSub: { remove: () => void } | null = null;
+let onlineTimer: ReturnType<typeof setTimeout> | null = null;
+function whenOnline(fn: () => void): void {
+  onlineSub?.remove();
+  if (onlineTimer) clearTimeout(onlineTimer);
+  const fire = (delay: number) => {
+    onlineSub?.remove();
+    onlineSub = null;
+    if (onlineTimer) clearTimeout(onlineTimer);
+    onlineTimer = null;
+    setTimeout(fn, delay);
+  };
+  onlineSub = Network.addNetworkStateListener((s) => {
+    // Bağlantı "var" dendiği anda DNS henüz hazır olmayabiliyor — kısa pay.
+    if (s.isConnected && s.isInternetReachable !== false) fire(1500);
+  });
+  // Ağ durumu değişmeden de düzelebilir (Wi-Fi bağlı ama DNS/internet yoktu):
+  // 20 sn'de bir yeniden dene; hâlâ yoksa hata yolu yeniden bekletir.
+  onlineTimer = setTimeout(() => fire(0), 20_000);
+}
+
 /** Çalma HATASI sonrası atlamada mod sinyali yazılmaz (kullanıcı şarkıyı duymadı). */
 export function suppressMoodSignal(): void {
   skipMoodOnce = true;
@@ -275,6 +300,41 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     } catch (e) {
       if (get().current?.uid !== item.uid) return;
       console.error("[player] çalınamadı:", item.title, errorText(e));
+      // ⚠️ BUG'DI (kullanıcı raporu: "Unable to resolve host youtubei.googleapis.com"
+      // ×3): bağlantı yokken her parça "çalınamadı" sayılıp üçü art arda atlanıyor,
+      // sonra çalma duruyordu. Ağ hatası parçanın suçu değil — atlama, bekle ve
+      // bağlantı gelince aynı parçayı aynı yerden yeniden dene.
+      const offline =
+        isNetworkError(e) &&
+        (await Network.getNetworkStateAsync()
+          .then((n) => !n.isConnected || n.isInternetReachable === false || /unknownhost|resolve host/i.test(errorText(e)))
+          .catch(() => true));
+      if (offline && opts.autoplay !== false && !(await cachedPath(item.id))) {
+        // Sırada İNDİRİLMİŞ bir parça varsa beklemek yerine ona geç: yolda,
+        // metroda internet giderken müzik kesilmesin.
+        const downloaded = useDownloadStore.getState().downloaded;
+        const q = get().queue;
+        const startFrom = get().index;
+        for (let k = 1; k < q.length; k++) {
+          const cand = q[(startFrom + k) % q.length];
+          if (isPlayableHere(cand) || downloaded.has(cand.id)) {
+            console.log(`[player] çevrimdışı — indirilmiş parçaya geçiliyor: ${cand.title}`);
+            useToastStore.getState().show(t("m.player.offlineJump"), "info");
+            await startAt((startFrom + k) % q.length);
+            return;
+          }
+        }
+        engine.markUnloaded();
+        set({ loading: false, error: t("m.player.offline"), pendingStartMs: opts.startMs ?? 0 });
+        whenOnline(() => {
+          const now = get();
+          if (now.current?.uid === item.uid && engine.loadedItemUid() !== item.uid && !now.loading) {
+            console.log("[player] bağlantı geldi — kaldığı yerden devam");
+            void startAt(now.index, { startMs: now.pendingStartMs });
+          }
+        });
+        return;
+      }
       consecutiveErrors++;
       const hasMore = get().queue.length > 1;
       if (consecutiveErrors <= MAX_CONSECUTIVE_ERRORS && hasMore && opts.autoplay !== false) {
@@ -776,15 +836,35 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
     restore: () => {
       const raw = useSettingsStore.getState().resumeState;
-      if (!raw || get().current) return;
+      if (get().current) {
+        console.log("[devam] kuyruk zaten dolu — geri yükleme atlandı");
+        return;
+      }
+      if (!raw) {
+        console.log("[devam] kayıtlı durum yok");
+        return;
+      }
       try {
-        const saved = JSON.parse(raw) as
-          | { mode: "discovery"; queue: QueueItem[]; queueIndex: number; seedArtists?: string[]; filters?: string[]; positionMs: number }
-          | { mode?: "queue"; queue?: QueueItem[]; queueIndex?: number; track?: Track; positionMs: number; playlistId?: string | null };
+        const saved = JSON.parse(raw) as {
+          mode?: "discovery" | "queue";
+          queue?: QueueItem[];
+          queueIndex?: number;
+          track?: Track;
+          positionMs?: number;
+          savedAt?: number;
+          seedArtists?: string[];
+          filters?: string[];
+          lockedSeedArtist?: string | null;
+          radioActive?: boolean;
+          radioPlaylistId?: string | null;
+          shuffleMode?: ShuffleMode;
+          repeat?: RepeatMode;
+        };
+        const age = saved.savedAt ? `${Math.round((Date.now() - saved.savedAt) / 60_000)} dk önce` : "zamanı bilinmiyor";
         if (saved.mode === "discovery") {
           if (!saved.queue?.length) return;
           const queue = saved.queue.map((i) => ({ ...i, uid: newUid(i.id) }));
-          const index = Math.min(Math.max(0, saved.queueIndex), queue.length - 1);
+          const index = Math.min(Math.max(0, saved.queueIndex ?? 0), queue.length - 1);
           rememberRecs(queue.filter((i) => i.isRecommendation) as unknown as Recommendation[]);
           set({
             queue,
@@ -794,18 +874,32 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
             radioActive: true,
             radioPlaylistId: DISCOVERY_ID,
             shuffleMode: "smart",
+            repeat: saved.repeat ?? "off",
+            lockedSeedArtist: saved.lockedSeedArtist ?? null,
             discoverySeedArtists: saved.seedArtists ?? [],
             discoveryFilters: saved.filters ?? [],
           });
+          console.log(`[devam] Keşfet geri yüklendi: ${index + 1}/${queue.length} (${age})`);
           return;
         }
         const list = saved.queue?.length ? saved.queue : saved.track ? [{ ...saved.track, uid: "" }] : [];
         if (!list.length) return;
         const queue = list.map((i) => ({ ...i, uid: newUid(i.id) }));
         const index = Math.min(Math.max(0, saved.queueIndex ?? 0), queue.length - 1);
-        set({ queue, index, current: queue[index], pendingStartMs: saved.positionMs ?? 0 });
+        const radio = !!saved.radioActive && !!saved.radioPlaylistId;
+        set({
+          queue,
+          index,
+          current: queue[index],
+          pendingStartMs: saved.positionMs ?? 0,
+          radioActive: radio,
+          radioPlaylistId: radio ? (saved.radioPlaylistId ?? null) : null,
+          shuffleMode: saved.shuffleMode ?? "off",
+          repeat: saved.repeat ?? "off",
+        });
+        console.log(`[devam] kuyruk geri yüklendi: ${index + 1}/${queue.length}${radio ? " (akıllı karışık)" : ""} (${age})`);
       } catch (e) {
-        console.warn("[player] kayıtlı durum okunamadı:", e);
+        console.warn("[devam] kayıtlı durum okunamadı:", e);
       }
     },
   };
@@ -833,6 +927,15 @@ export async function onAdvancedTo(uid: string, natural: { positionMs: number; d
   finishStart();
 }
 
+
+// Yer tutucu parçanın meta verisi geldi → kuyruk, mini oynatıcı ve bildirim adı görsün.
+onMetaFilled((trackId, meta) => {
+  const patch = (i: QueueItem): QueueItem =>
+    i.id === trackId && !i.title
+      ? { ...i, title: meta.title, artist: meta.artist, thumbnail: meta.thumbnail ?? i.thumbnail, durationMs: meta.durationMs || i.durationMs }
+      : i;
+  usePlayerStore.setState((s) => ({ queue: s.queue.map(patch), current: s.current ? patch(s.current) : null }));
+});
 
 // Silinen video başka yüklemeye bağlandı → kuyruktaki kopyalar da güncellensin.
 onRelinked((trackId, sourceId) => {

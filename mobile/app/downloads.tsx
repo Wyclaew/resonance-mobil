@@ -51,6 +51,8 @@ export default function Downloads() {
   const shown = tab === "kept" ? kept : temp;
   const total = rows.reduce((a, r) => a + (r.bytes || 0), 0);
   const active = Object.values(jobs).filter((j) => j.status === "running" || j.status === "queued").length;
+  // Kalıcı indirme kuyruğu: sürenler, bağlantı bekleyenler ve nedeniyle başarısızlar.
+  const queueJobs = Object.values(jobs).filter((j) => j.status !== "done" && !j.speculative);
 
   return (
     <View className="bg-bg flex-1">
@@ -67,6 +69,40 @@ export default function Downloads() {
                 active ? ` · ${t("m.downloads.active", { n: active })}` : ""
               }`}
             </Text>
+            {queueJobs.length ? (
+              <View className="bg-surface border-border mt-4 rounded-2xl border px-3 py-2">
+                <View className="flex-row items-center justify-between px-1 pb-1 pt-1">
+                  <Eyebrow>{t("m.downloads.queue", { n: queueJobs.length })}</Eyebrow>
+                  {queueJobs.some((j) => j.status === "failed") ? (
+                    <Text onPress={() => useDownloadStore.getState().clearFailed()} className="text-muted text-[12px]">
+                      {t("common.clear")}
+                    </Text>
+                  ) : null}
+                </View>
+                {queueJobs.slice(0, 12).map((j) => (
+                  <View key={j.track.id} className="flex-row items-center py-1.5">
+                    <View className="flex-1 pl-1">
+                      <Text className="text-text text-[13px]" numberOfLines={1}>
+                        {j.track.title || j.track.sourceId}
+                      </Text>
+                      <Text
+                        className={j.status === "failed" ? "text-down text-[11px]" : "text-muted text-[11px]"}
+                        numberOfLines={2}
+                      >
+                        {j.status === "running"
+                          ? `${Math.round(j.progress * 100)}%`
+                          : j.status === "queued"
+                            ? t("m.downloads.queued")
+                            : (j.error ?? "")}
+                      </Text>
+                    </View>
+                    {j.status === "failed" || j.status === "waiting" ? (
+                      <Button small kind="ghost" icon="refresh" label={t("error.retry")} onPress={() => useDownloadStore.getState().retry(j.track.id)} />
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            ) : null}
             <View className="mt-4">
               <Segmented
                 value={tab}

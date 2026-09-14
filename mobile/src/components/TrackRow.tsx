@@ -101,7 +101,8 @@ function TrackRowBase({
           style={{ color: active ? c.accent : c.text, fontFamily: active ? "Inter_600SemiBold" : "Inter_500Medium" }}
           numberOfLines={1}
         >
-          {track.title}
+          {/* Senkronun açtığı yer tutucu: bilgisi arka planda (Wi-Fi'da) dolduruluyor. */}
+          {track.title || t("m.track.pending")}
         </Text>
         <View className="mt-0.5 flex-row items-center">
           {downloaded ? (
@@ -112,9 +113,17 @@ function TrackRowBase({
             <Text className="text-accent mr-1.5 text-[10px]" style={{ fontFamily: "JetBrainsMono_500Medium" }}>
               {`${Math.round((job?.progress ?? 0) * 100)}%`}
             </Text>
+          ) : job?.status === "waiting" ? (
+            <View className="mr-1.5">
+              <Icon name="clock" size={11} color={c.faint} />
+            </View>
+          ) : job?.status === "failed" ? (
+            <View className="mr-1.5">
+              <Icon name="warning" size={11} color={c.down} />
+            </View>
           ) : null}
           <Text className="text-muted flex-1 text-[12px]" numberOfLines={1}>
-            {track.artist}
+            {track.title ? track.artist : `YouTube · ${track.sourceId}`}
           </Text>
           <Text className="text-faint ml-2 text-[10px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
             {meta ?? (track.durationMs > 0 ? mmss(track.durationMs / 1000) : "")}

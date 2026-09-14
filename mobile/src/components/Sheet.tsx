@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useOverlay } from "../store/useOverlay";
 import { alpha, useColors } from "../theme";
 import { Icon, type IconName } from "./Icon";
 
@@ -27,9 +28,17 @@ export function Sheet({
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  useEffect(() => {
+    if (!visible) return;
+    useOverlay.getState().open();
+    return () => useOverlay.getState().close();
+  }, [visible]);
   if (!visible) return null;
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+    // `navigationBarTranslucent`: Android 15+ kenardan kenara düzende modal
+    // penceresi gezinme çubuğunun altına inmiyor ve sayfanın alt satırları
+    // kesiliyordu; pencere tam ekran olsun, boşluğu `insets.bottom` versin.
+    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Animated.View entering={FadeIn.duration(160)} style={{ flex: 1, backgroundColor: alpha("#000000", 0.55) }}>
         <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="close" />
         <Animated.View

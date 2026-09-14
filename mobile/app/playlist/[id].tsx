@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, FlatList, Share, Text, TextInput, View } from "react-native";
 
 import { useBottomSpace } from "../../src/components/MiniPlayer";
@@ -12,6 +12,7 @@ import { hapticSuccess, hapticWarn } from "../../src/lib/haptics";
 import { useLang, useT } from "../../src/lib/i18n.mobile";
 import { cooldownRemaining } from "../../src/lib/karma";
 import * as pl from "../../src/lib/playlists";
+import { onTracksRepaired } from "../../src/lib/repairTracks";
 import { encodePlaylist } from "../../src/lib/share";
 import { useDownloadStore } from "../../src/store/useDownloadStore";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
@@ -57,6 +58,8 @@ export default function PlaylistScreen() {
       void load();
     }, [load])
   );
+  // Arka planda yer tutucular dolunca açık liste yeniden okunsun (adlar/kapaklar gelsin).
+  useEffect(() => onTracksRepaired(() => void load()), [load]);
 
   const shown = useMemo(() => {
     const sorted = sortMode === "karma" ? [...tracks].sort((a, b) => b.karma - a.karma) : tracks;
