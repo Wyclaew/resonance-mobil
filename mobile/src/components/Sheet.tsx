@@ -1,11 +1,12 @@
 import { useEffect, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
-import Animated, { FadeIn, SlideInDown } from "react-native-reanimated";
+import { BackHandler, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useOverlay } from "../store/useOverlay";
 import { alpha, useColors } from "../theme";
 import { Icon, type IconName } from "./Icon";
+import { Portal } from "./Portal";
 
 /**
  * Alt sayfa — mobilde masaüstündeki sağ tık menüsünün ve açılır pencerelerin
@@ -28,23 +29,53 @@ export function Sheet({
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  // Aşağıdan kayma YALNIZ transform ile. ⛔ `entering={SlideInDown}` (dizilim
+  // animasyonu) çerçeveyi açılış anındaki boyutta donduruyordu (ölçüldü): sayfa
+  // açıldıktan sonra büyüyünce (dinleme karnesi geç yüklenir) JS'e göre y=222 h=692
+  // iken ekranda ilk dizilimdeki y=403'te kalıyor, son satırlar ekranın altından
+  // taşıp görünmüyor ve dokunulamıyordu ("Listeden çıkar", "Başka sürüm seç").
+  const slide = useSharedValue(height);
+  const slideStyle = useAnimatedStyle(() => ({ transform: [{ translateY: slide.value }] }));
   useEffect(() => {
     if (!visible) return;
+    slide.value = height;
+    slide.value = withTiming(0, { duration: 240 });
     useOverlay.getState().open();
     return () => useOverlay.getState().close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+  // Geri tuşu önce sayfayı kapatsın (Modal'ın onRequestClose karşılığı).
+  useEffect(() => {
+    if (!visible) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
   if (!visible) return null;
   return (
-    // `navigationBarTranslucent`: Android 15+ kenardan kenara düzende modal
-    // penceresi gezinme çubuğunun altına inmiyor ve sayfanın alt satırları
-    // kesiliyordu; pencere tam ekran olsun, boşluğu `insets.bottom` versin.
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <Animated.View entering={FadeIn.duration(160)} style={{ flex: 1, backgroundColor: alpha("#000000", 0.55) }}>
+    // ⛔ RN `Modal` DEĞİL, ana pencerede kök düzey (`Portal`): Modal penceresinin
+    // kökü açılıştan hemen sonra 838 → 914 dp yeniden boyutlanıyordu (ölçüldü) —
+    // ayrıntı `Portal.tsx`'te.
+    <Portal>
+      <Animated.View
+        entering={FadeIn.duration(160)}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 1000,
+          backgroundColor: alpha("#000000", 0.55),
+        }}
+      >
         <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="close" />
         <Animated.View
-          entering={SlideInDown.duration(240)}
           className="bg-surface border-border rounded-t-3xl border-t"
-          style={{ paddingBottom: insets.bottom + 12, maxHeight: "88%" }}
+          style={[{ paddingBottom: insets.bottom + 12, maxHeight: Math.round(height * 0.88) }, slideStyle]}
         >
           <View className="items-center pb-1 pt-2.5">
             <View className="h-1 w-10 rounded-full" style={{ backgroundColor: c.surface3 }} />
@@ -55,7 +86,11 @@ export function Sheet({
             </Text>
           ) : null}
           {scroll ? (
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8 }}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              style={{ flexGrow: 0, flexShrink: 1 }}
+              contentContainerStyle={{ paddingBottom: 8 }}
+            >
               {children}
             </ScrollView>
           ) : (
@@ -63,7 +98,7 @@ export function Sheet({
           )}
         </Animated.View>
       </Animated.View>
-    </Modal>
+    </Portal>
   );
 }
 

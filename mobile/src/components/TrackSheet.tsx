@@ -11,6 +11,7 @@ import { useDownloadStore } from "../store/useDownloadStore";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { usePlaylistStore } from "../store/usePlaylistStore";
 import { useToastStore } from "../store/useToastStore";
+import { useVersionPicker } from "../store/useVersionPicker";
 import type { Track } from "../types";
 import { useAddToPlaylist } from "./AddToPlaylistSheet";
 import { HourBars } from "./Charts";
@@ -150,6 +151,14 @@ export function TrackSheet() {
         ) : (
           <SheetAction icon="download" label={t("player.download")} onPress={run(() => useDownloadStore.getState().enqueue(track))} />
         )
+      ) : null}
+      {track.source !== "local" ? (
+        <SheetAction
+          icon="wand"
+          label={t("m.version.sheetAction")}
+          sub={t("m.version.sheetActionSub")}
+          onPress={run(() => useVersionPicker.getState().open(track))}
+        />
       ) : null}
       {ctx.queueUid ? (
         <SheetAction

@@ -38,6 +38,8 @@ export default function Home() {
   const covers = useCovers((s) => s.covers);
   const discovering = usePlayerStore((s) => s.discovering);
   const inDiscovery = usePlayerStore((s) => s.radioActive && s.radioPlaylistId === DISCOVERY_ID);
+  const savedDiscovery = usePlayerStore((s) => s.savedDiscovery);
+  const savedTitle = savedDiscovery?.queue[savedDiscovery.index]?.title;
   const avatar = useSettingsStore((s) => s.avatarDataUrl);
   const { rows: remote } = useRemoteQueues();
   const [recent, setRecent] = useState<Track[]>([]);
@@ -130,7 +132,11 @@ export default function Home() {
                 </Text>
               </View>
               <Text className="text-text mt-2 text-[19px] leading-6" style={{ fontFamily: "Archivo_700Bold" }}>
-                {inDiscovery ? t("m.home.discoveryOn") : t("discover.empty")}
+                {inDiscovery
+                  ? t("m.home.discoveryOn")
+                  : savedTitle
+                    ? t("m.home.discoverySaved", { title: savedTitle })
+                    : t("discover.empty")}
               </Text>
               <Text className="text-muted mt-1 text-[12px] leading-[17px]">{t("home.discoveryDesc")}</Text>
             </View>
@@ -138,11 +144,13 @@ export default function Home() {
           <View className="flex-row gap-2 px-5 pb-5">
             <Button
               kind="primary"
-              icon={inDiscovery ? "play" : "compass"}
-              label={inDiscovery ? t("m.home.backToDiscovery") : t("discover.start")}
+              icon={inDiscovery || savedTitle ? "play" : "compass"}
+              label={inDiscovery ? t("m.home.backToDiscovery") : savedTitle ? t("m.discover.resume") : t("discover.start")}
               busy={discovering}
               onPress={() => {
                 if (inDiscovery) router.push("/player");
+                // Listeden başka şarkı açılınca kenara konan keşif: kaldığı yerden sürer.
+                else if (savedTitle) void usePlayerStore.getState().resumeDiscovery();
                 else void usePlayerStore.getState().startDiscovery();
               }}
             />

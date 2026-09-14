@@ -9,7 +9,8 @@ import { useBottomSpace } from "../../src/components/MiniPlayer";
 import { TrackRow } from "../../src/components/TrackRow";
 import { Artwork, Button, Card, Chip, EmptyState, Eyebrow } from "../../src/components/ui";
 import { blockArtist } from "../../src/lib/blocked";
-import { date } from "../../src/lib/fmt";
+import type { DiscoverySession } from "../../src/lib/discoverySession";
+import { ago, date } from "../../src/lib/fmt";
 import { DISCOVERY_FILTERS } from "../../src/lib/filters";
 import { hapticSuccess } from "../../src/lib/haptics";
 import { useLang, useT } from "../../src/lib/i18n.mobile";
@@ -43,9 +44,10 @@ export default function Discover() {
   const locked = usePlayerStore((s) => s.lockedSeedArtist);
   const seeds = usePlayerStore((s) => s.discoverySeedArtists);
   const error = usePlayerStore((s) => s.error);
+  const saved = usePlayerStore((s) => s.savedDiscovery);
   const playing = usePlayback((s) => s.playing);
   const [draft, setDraft] = useState<string[]>(activeFilters);
-  const [filtersOpen, setFiltersOpen] = useState(!active);
+  const [filtersOpen, setFiltersOpen] = useState(!active && !saved);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -166,9 +168,17 @@ export default function Discover() {
           className="flex-1"
         />
         <Button
-          kind={draft.length || !active ? "primary" : "secondary"}
+          kind={draft.length || (!active && !saved) ? "primary" : "secondary"}
           icon="compass"
-          label={active && !dirty ? t("discover.apply") : draft.length ? t("discover.apply") : t("discover.start")}
+          label={
+            active && !dirty
+              ? t("discover.apply")
+              : draft.length
+                ? t("discover.apply")
+                : saved && !active
+                  ? t("m.discover.newBatch")
+                  : t("discover.start")
+          }
           busy={discovering}
           onPress={() => {
             if (!draft.length && !active) return void apply([]);
@@ -184,6 +194,8 @@ export default function Discover() {
       </View>
 
       {error && !active ? <Text className="text-down mt-3 px-5 text-[12px]">{error}</Text> : null}
+
+      {!active && saved ? <SavedDiscovery session={saved} /> : null}
 
       {active && current ? (
         <View className="px-5 pt-6">
@@ -261,10 +273,97 @@ export default function Discover() {
             ))}
           </View>
         </View>
-      ) : !active ? (
+      ) : !active && !saved ? (
         <EmptyState text={t("discover.empty")} />
       ) : null}
     </ScrollView>
+  );
+}
+
+/**
+ * Kenara konmuş keşif (Keşfet çalarken listeden başka şarkı açıldı): parti
+ * silinmez; buradan kaldığı şarkıdan ve saniyeden ya da seçilen şarkıdan sürer.
+ */
+function SavedDiscovery({ session }: { session: DiscoverySession }) {
+  const t = useT();
+  const lang = useLang();
+  const [busy, setBusy] = useState(false);
+  const cur = session.queue[session.index];
+  const upcoming = session.queue.slice(session.index + 1);
+  const filters = session.filters
+    .map((id) => DISCOVERY_FILTERS.find((f) => f.id === id))
+    .filter(Boolean)
+    .map((f) => t(f!.labelKey))
+    .join(" · ");
+
+  async function resume(at?: number) {
+    setBusy(true);
+    try {
+      await usePlayerStore.getState().resumeDiscovery(at);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <View className="px-5 pt-6">
+        <Eyebrow>{t("m.discover.saved")}</Eyebrow>
+        <Card className="mt-2">
+          <View className="flex-row items-center p-3.5">
+            <Artwork uri={cur?.thumbnail} size={64} radius={10} />
+            <View className="ml-3.5 flex-1">
+              <Text className="text-accent text-[10px]" style={{ fontFamily: "JetBrainsMono_500Medium" }} numberOfLines={1}>
+                {cur?.isProbe ? t("discover.probe") : reasonText(cur?.recReason, lang)}
+              </Text>
+              <Text className="text-text mt-1 text-[16px]" style={{ fontFamily: "Inter_600SemiBold" }} numberOfLines={1}>
+                {cur?.title}
+              </Text>
+              <Text className="text-muted text-[13px]" numberOfLines={1}>
+                {cur?.artist}
+              </Text>
+            </View>
+          </View>
+          <View className="px-3.5 pb-3.5">
+            <Text className="text-faint text-[12px]" numberOfLines={2}>
+              {[
+                t("m.discover.savedMeta", { n: upcoming.length, ago: ago(session.savedAt, lang) }),
+                filters,
+                session.lockedSeedArtist ? t("discover.lockedOn", { artist: session.lockedSeedArtist }) : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+            <Button
+              kind="primary"
+              icon="play"
+              label={t("m.discover.resume")}
+              busy={busy}
+              onPress={() => void resume()}
+              className="mt-3 self-start"
+            />
+          </View>
+        </Card>
+        <Text className="text-faint mt-2 text-[12px] leading-[17px]">{t("m.discover.savedHint")}</Text>
+      </View>
+      {upcoming.length ? (
+        <View className="pt-6">
+          <View className="px-5">
+            <Eyebrow>{`${t("discover.upNext")} · ${upcoming.length}`}</Eyebrow>
+          </View>
+          <View className="mt-1 px-1">
+            {upcoming.slice(0, 30).map((item, i) => (
+              <TrackRow
+                key={item.uid}
+                track={item}
+                note={item.isProbe ? `◆ ${t("discover.probe")}` : reasonText(item.recReason, lang)}
+                onPress={() => void resume(session.index + 1 + i)}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+    </>
   );
 }
 

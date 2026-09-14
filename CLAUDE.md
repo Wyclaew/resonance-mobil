@@ -8,7 +8,7 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum (v1.0.1):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
+**Durum (v1.0.2):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
 ayarlar, veri/yedek, istatistik/zevk/özet, açık tema + vurgu rengi, TR/EN). Sürüm APK'sı
 R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı aşağıda ayrı yazılı.
 
@@ -121,11 +121,14 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
 - `mobile/src/lib/` (mobil) — `i18n.mobile.ts` (`m.` anahtarları + masaüstü sözlüğü),
   `fmt.ts` (TÜM sayı gösterimi), `startup.ts` (açılış sonrası işler), `dbBackup.ts`,
   `insights.ts`, `diagnose.ts`, `searchHistory.ts`, `mobileSettings.ts`, `downloads.ts`,
-  `relink.ts`, `localAudio.ts`, `spotify.ts`, `thumbs.ts`, `repairTracks.ts`, `webShims.ts`,
+  `relink.ts` (doğrulanmış alternatif + yanlış bağlantı denetimi), `versionMatch.ts` (aynı şarkı
+  mı? — saf), `discoverySession.ts` (kenardaki keşif), `netError.ts`,
+  `localAudio.ts`, `spotify.ts`, `thumbs.ts`, `repairTracks.ts`, `webShims.ts`,
   `tauriShim.ts`, `haptics.ts`.
 - `mobile/src/components/` — `ui.tsx` (Button, Chip, Row, Segmented, Toggle, Artwork,
   Mosaic, Card, Stat, TopBar…), `Icon.tsx` (lucide, TEK TEK yoldan içe aktarım),
-  `Sheet.tsx`, `TrackRow`, `TrackSheet`, `KarmaControl`, `Seekbar`, `MiniPlayer`, `Charts`.
+  `Sheet.tsx` (Modal değil → `Portal.tsx`), `TrackRow`, `TrackSheet`, `VersionSheet` (sürüm seç),
+  `KarmaControl`, `Seekbar`, `MiniPlayer`, `Charts`.
 - `mobile/modules/resonance-extractor/` — Kotlin: `resolve`, `resolveMany`, `radio`,
   `search`, `playlist`, `scanLocal` (MediaStore), `loudness` (YouTube audioConfig).
   **Sadece ham veri döndürür**; filtre/skorlama paylaşılan TS'te kalır.
@@ -202,15 +205,41 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
 - ⛔ **Çevrimdışıyken üç parça art arda "çalınamadı" diye atlanıp çalma duruyordu** (rapor:
   `UnknownHostException`). Ağ hatası parçanın suçu değil: sırada indirilmiş parça varsa ona
   geçilir, yoksa bağlantı gelince (ya da 20 sn'de bir) aynı parça aynı yerden denenir.
-- ⚠️ **Alt sayfanın son satırları mini oynatıcının arkasında kalıyordu** (Android 15+ kenardan
-  kenara: modal penceresi gezinme çubuğunun altına inmiyor). `Modal navigationBarTranslucent`
-  + sayfa açıkken mini oynatıcı gizli (`useOverlay`).
-- ⚠️ **"Keşfet'i kapatıp açınca hatırlamıyor"** (kullanıcı, Xiaomi). Emülatörde 4 yolla
-  (zorla durdurma, yeniden kurma, son uygulamalardan kaydırma, yeni parti + kaydırma)
-  YENİDEN ÜRETİLEMEDİ. Önlem: `presence.ts` parça değişimi/duraklatma/kuyruk değişimi/arka
-  plan anında ZORLA yazar (eskiden yalnız 10 sn'lik ilerleme); akıllı karışık, tekrar, tarz
-  kilidi de saklanır; geri yükleme `[devam]` logu ve hata raporunda "Kayıtlı devam" satırı var.
-  Tekrar olursa açılıştan hemen sonra rapor iste.
+- ⛔ **Alt sayfanın son satırları görünmüyor/dokunulmuyordu** (v1.0.0–1.0.1; önceki
+  "navigationBarTranslucent + mini oynatıcıyı gizle" düzeltmesi YALNIZ belirtiyi örtmüştü).
+  ÖLÇÜLDÜ, iki neden üst üste: (1) RN `Modal` penceresinin kökü açılıştan hemen sonra
+  838 → 914 dp yeniden boyutlanıyor (bayraklı da bayraksız da); (2) sayfadaki
+  `entering={SlideInDown}` dizilim animasyonu çerçeveyi açılıştaki boyutta donduruyor —
+  sayfa sonradan büyüyünce (dinleme karnesi geç yüklenir) JS'e göre y=222 iken ekranda
+  y=403'te kalıyordu. Artık: `Sheet` Modal DEĞİL, kök düzende `Portal`; kayma yalnız
+  transform (`useSharedValue`); sınır dp (`"88%"` kaydırmayı bozuyordu); geri tuşu
+  `BackHandler`. ⚠️ Büyüyebilen görünüme `entering` layout animasyonu VERME.
+- ⛔ **"Keşfet'i kapatıp açınca hatırlamıyor"** → gerçek neden (kullanıcı netleştirdi):
+  kapatınca DEĞİL, Keşfet dışından (liste) şarkı açınca gidiyordu — tek kuyruk var, üzerine
+  yazılıyordu. `lib/discoverySession.ts`: kuyruk Keşfet'ten başka şeye geçerken parti kenara
+  konur (localStorage, senkronlanmaz); Keşfet sekmesi + ana sayfa "Keşfe devam et" (kaldığı
+  şarkı ve saniye). Yeni keşif başlatınca silinir. Listeden şarkı açmak artık çıkış olarak
+  kaydedilir (`leaveCurrent` → `recordOutgoing("jump")`). `presence.ts` önlemleri de duruyor.
+- ⛔ **Alternatif kaynak YANLIŞ şarkıya bağlıyordu** (rapor: telefonda "Midnight City" → M83
+  "Outro"; senkronla masaüstüne de geçti). Eşleşme yalnız süreydi (masaüstü `find_alternative`
+  da öyle — orada da düzeltilmeli). `lib/versionMatch.ts`: başlık çekirdeği + sanatçı + sürüm
+  işareti (remix/slowed/live/cover…) + puan eşiği; `relink.ts` adayı BAĞLAMADAN ÖNCE çözer,
+  YT Music + video aramasını birlikte yapar. `auditRelinks()` (açılışta Wi-Fi'da) yeniden
+  bağlanmış parçaların (`id ≠ youtube:source_id`) başlığını oEmbed'le denetleyip yanlışları onarır.
+  Mac'te test: eşleşme mantığı gerçek arama sonuçlarıyla Node'da koşturuldu (Midnight City
+  adaylarının 11'i elendi, resmi video seçildi).
+- ⛔ **LOGIN_REQUIRED "Please sign in"** (spike `AltProbe`/`ClientProbe`): bazı YT Music şarkı
+  kayıtları (M83) oturumsuz HİÇBİR istemcide (android-reel/ios/visionos/gömülü) çalınmıyor;
+  aşılamaz. Aynı şarkının resmi/söz videosu çalınıyor → alternatif. Doğrulanmış sürüm yoksa
+  indirme `NoPlayableVersionError` → "Sürüm seç" (`VersionSheet`, elle; seçilen önce denenir).
+  Geçici hatada (403/5xx/bot) indirme 1 dk ve 5 dk sonra kendiliğinden yeniden dener.
+- ⚠️ **Emülatör verisi senkronsuz** (2026-09-09'dan beri oturum yok: AsyncStorage'da
+  `ls:sb-…-auth-token` yok, `sync_state` 09-09'da duruyor). Önceki turlarda "emülatördeki
+  yeniden bağlama masaüstüne gider" denmişti — YANLIŞTI, gitmedi. Test ederken bunu kontrol et.
+- ⚠️ **Emülatör `-no-snapshot-save` ile açılıp kapanırsa eski `default_boot` görüntüsüne döner**
+  (o anki APK 1.0.1'di, DB de eski): "Metro'ya hiç istek yok, yeni düğme yok" görülürse önce
+  `dumpsys package com.resonance.mobile | grep versionName`. Uzun süredir açık eski Metro
+  dosya değişikliğini kaçırabilir → `expo start --clear` ile yeniden başlat.
 - ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
 
 ## Özellikler
@@ -221,14 +250,21 @@ süresi, geri al ★ · koyu/açık tema anında ★ · otomatik + elle yedek (`
 ana sayfa/Keşfet/oynatıcı/ayar ekranları ★ · kapat-aç sonrası Keşfet sırası geri geliyor ★ ·
 medya bildirimine dokununca oynatıcı ★ · rapor düğmesi posta uygulamasını açıyor ★ (dolu
 taslak emülatörde görülemedi: Gmail'de hesap yok) · silinmiş videonun indirmesi alternatif
-yüklemeyle ★ · geri yükleme logu ★ · mini oynatıcıda kaydırma (geliştirme sürümü) · alt sayfa
-tam ekran + mini oynatıcı gizli · önceki turlardan: indirme (Wi-Fi, LRU),
+yüklemeyle ★ · geri yükleme logu ★ · mini oynatıcıda kaydırma (geliştirme sürümü) ·
+v1.0.2 geliştirme sürümünde: yanlış bağlantı denetimi ("Outro" → resmi video, oturum isteyen
+aday atlandı) · oturum isteyen kaydın indirmesi doğrulanmış sürümle (3,7 MB) · "Sürüm seç"
+listesi, başarısız adayda neden ("oturum istiyor"), başarılı seçimde yeniden bağlama ·
+Keşfet'i kenara koyma → Keşfet sekmesi/ana sayfa kartı → kapat-aç sonrası duruyor → "Keşfe
+devam et" kaldığı şarkıdan · uzun alt sayfa sonuna kadar görünür/kaydırılır, geri tuşu
+kapatır · önceki turlardan: indirme (Wi-Fi, LRU),
 senkron, telefondaki müzik, ses eşitleme, Spotify içe aktarma, özet görsel paylaşımı.
 
 **Yazıldı, tip denetimli, cihazda henüz uçtan uca denenmedi:** tekrar/karışık kipleri,
 akıllı karışık öneri serpiştirme, "böyle devam et", sıra düzenleme, uyku "şarkı bitince",
 liste yeniden adlandır/sırala/toplu indir/paylaş, sözden arama, çevrimdışı atlama/bekleme,
-indirmenin ağ gelince sürmesi, yer tutucu onarımının oEmbed yedeği,
+indirmenin ağ gelince sürmesi, yer tutucu onarımının oEmbed yedeği, indirmede "Sürüm seç"
+düğmesi/bildirimi (hiç doğrulanmış sürüm bulunamayan durum), indirmenin otomatik yeniden
+denemesi, başka cihazdan kuyruk devralırken Keşfet'i kenara koyma,
 JSON dışa/içe aktarma, yedekten geri yükleme, bağlantı testi, İngilizce arayüz,
 açılış rehberi, hesap akışları (kayıt, şifre sıfırlama, ilk senkron yönü).
 

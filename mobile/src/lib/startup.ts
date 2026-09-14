@@ -4,6 +4,7 @@ import { prewarmUrls } from "../audio/urlCache";
 import { autoBackup } from "./dbBackup";
 import { getDb } from "./db";
 import { pruneCache } from "./downloads";
+import { auditRelinks } from "./relink";
 import { onTracksRepaired, repairPlaceholderTracks } from "./repairTracks";
 import { t } from "./i18n.mobile";
 import { getSupabase, wasSignOutIntentional } from "./sync/client";
@@ -74,6 +75,9 @@ async function wifiTasks(): Promise<void> {
     if (net.type !== Network.NetworkStateType.WIFI) return;
     // Keşfet'e basınca anında başlasın (kayıt yazılmaz, kullanılınca yazılır).
     if (!usePlayerStore.getState().current) void prewarmDiscovery();
+    // Eski eşleştirmenin yanlış şarkıya bağladığı parçaları onar (her bağlantı bir kez).
+    const relinked = await auditRelinks().catch(() => 0);
+    if (relinked) void usePlaylistStore.getState().refresh();
     await autoDownloadTop();
   } catch (e) {
     console.warn("[açılış] arka plan işleri:", e);

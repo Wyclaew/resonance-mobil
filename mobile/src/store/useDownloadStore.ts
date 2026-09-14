@@ -1,22 +1,33 @@
 import * as Network from "expo-network";
 import { create } from "zustand";
 
-import { downloadTrack, downloadedIds, isNetworkError, pruneCache, removeDownload } from "../lib/downloads";
+import {
+  downloadTrack,
+  downloadedIds,
+  isNetworkError,
+  NoPlayableVersionError,
+  pruneCache,
+  removeDownload,
+} from "../lib/downloads";
 import { t } from "../lib/i18n.mobile";
 import { getMobileSettings } from "../lib/mobileSettings";
+import { shortReason, unavailableKind } from "../lib/relink";
 import type { Track } from "../types";
 import { useSettingsStore } from "./useSettingsStore";
 import { useToastStore } from "./useToastStore";
+import { useVersionPicker } from "./useVersionPicker";
 
 export interface DownloadJob {
   track: Track;
   /** 0..1 */
   progress: number;
-  /** waiting = ağ/Wi-Fi bekleniyor; gelince KENDİLİĞİNDEN devam eder. */
+  /** waiting = ağ/Wi-Fi ya da otomatik yeniden deneme bekleniyor; KENDİLİĞİNDEN devam eder. */
   status: "queued" | "running" | "waiting" | "done" | "failed";
   error?: string;
   /** Sıradakini önden indirme — kullanıcının kuyruğunda gösterilmez. */
   speculative?: boolean;
+  /** Çalınabilir sürüm bulunamadı: yeniden denemek boşuna, "Sürüm seç" gerekir. */
+  needsPick?: boolean;
 }
 
 interface DownloadState {
@@ -37,6 +48,11 @@ interface DownloadState {
   retry: (trackId: string) => void;
   /** Başarısız işleri listeden temizle. */
   clearFailed: () => void;
+  /**
+   * Parça elle başka yüklemeye bağlandı: eski sürümün dosyası artık yanlış kayıt —
+   * silinir; indirilmişse ya da istenirse yeni sürüm indirilir.
+   */
+  replaceVersion: (track: Track, sourceId: string, download: boolean) => Promise<void>;
 }
 
 /**
@@ -59,6 +75,12 @@ const pending: PendingItem[] = [];
 /** Ağ/Wi-Fi bekleyen işler. */
 const parked: PendingItem[] = [];
 let listening = false;
+/**
+ * Geçici hatada (403, 5xx, bot doğrulaması, çıkarım aksaklığı) otomatik yeniden
+ * deneme: önce 1 dk, sonra 5 dk sonra. "Tekrar dene"ye basmayı beklemeden.
+ */
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000];
+const autoRetries = new Map<string, number>();
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -98,6 +120,24 @@ export const useDownloadStore = create<DownloadState>((set, get) => {
         void drain();
       });
     });
+  }
+
+  /** Geçici hatayı biraz sonra kendiliğinden yeniden dene; hak bittiyse `false`. */
+  function scheduleRetry(item: PendingItem, reason: string): boolean {
+    const id = item.track.id;
+    const n = autoRetries.get(id) ?? 0;
+    if (n >= RETRY_DELAYS_MS.length) return false;
+    autoRetries.set(id, n + 1);
+    update(id, { status: "waiting", error: `${reason} · ${t("m.dl.retrySoon")}` });
+    setTimeout(() => {
+      // Bu arada kullanıcı yeniden denediyse, kaldırdıysa ya da iş ağ bekliyorsa dokunma.
+      if (get().jobs[id]?.status !== "waiting") return;
+      if (pending.some((p) => p.track.id === id) || parked.some((p) => p.track.id === id)) return;
+      update(id, { status: "queued", error: undefined });
+      pending.push(item);
+      void drain();
+    }, RETRY_DELAYS_MS[n]);
+    return true;
   }
 
   async function drain(): Promise<void> {
@@ -141,6 +181,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => {
             },
           });
           update(track.id, { status: "done", progress: 1 });
+          autoRetries.delete(track.id);
           if (permanent) set((s) => ({ downloaded: new Set(s.downloaded).add(track.id) }));
           // Kota aşıldıysa en eski GEÇİCİ önbellek dosyaları budanır; indirilenler korunur.
           const limit = useSettingsStore.getState().cacheLimitGb * 1024 * 1024 * 1024;
@@ -158,15 +199,25 @@ export const useDownloadStore = create<DownloadState>((set, get) => {
             console.warn(`[önden indirme] ${track.title}: ${errorText(e)}`);
             continue;
           }
-          update(track.id, { status: "failed", error: errorText(e) });
           // ⚠️ Nedeni yazılmıyordu: kullanıcı raporunda yalnız "İndirilemedi: <başlık>"
-          // vardı, neden yoktu. Log (rapora girer) + bildirime kısa neden.
+          // vardı, neden yoktu. Log (rapora girer) + bildirime kısa, okunur neden.
           console.warn(`[indirme] ${track.title} (${track.sourceId}) indirilemedi:`, errorText(e));
-          if (!speculative) {
-            useToastStore
-              .getState()
-              .show(`${t("toast.downloadFailed", { title: track.title })} — ${errorText(e).slice(0, 120)}`, "error");
+          if (e instanceof NoPlayableVersionError) {
+            // Otomatik arama doğrulanmış sürüm bulamadı: yeniden denemek boşuna,
+            // kullanıcıya seçtir ("kesin indirme" yolu — kullanıcı isteği).
+            const reason = t("m.dl.noVersion", { why: t(`m.dl.why.${e.kind}` as const) });
+            update(track.id, { status: "failed", error: reason, needsPick: true });
+            useToastStore.getState().show(`${t("toast.downloadFailed", { title: track.title })} — ${reason}`, "error", {
+              label: t("m.version.pick"),
+              fn: () => useVersionPicker.getState().open(track, { download: true }),
+            });
+            continue;
           }
+          const kind = unavailableKind(e);
+          const reason = kind ? t(`m.dl.why.${kind}` as const) : shortReason(e);
+          if (scheduleRetry(item, reason)) continue;
+          update(track.id, { status: "failed", error: reason, needsPick: false });
+          useToastStore.getState().show(`${t("toast.downloadFailed", { title: track.title })} — ${reason}`, "error");
         }
       }
     } finally {
@@ -238,7 +289,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => {
       if (!job || job.status === "running" || job.status === "queued") return;
       const at = parked.findIndex((p) => p.track.id === trackId);
       if (at >= 0) parked.splice(at, 1);
-      set((s) => ({ jobs: { ...s.jobs, [trackId]: { ...job, status: "queued", error: undefined, progress: 0 } } }));
+      autoRetries.delete(trackId);
+      set((s) => ({
+        jobs: { ...s.jobs, [trackId]: { ...job, status: "queued", error: undefined, progress: 0, needsPick: false } },
+      }));
       pending.push({ track: job.track, permanent: true, speculative: false });
       void drain();
     },
@@ -247,5 +301,27 @@ export const useDownloadStore = create<DownloadState>((set, get) => {
       set((s) => ({
         jobs: Object.fromEntries(Object.entries(s.jobs).filter(([, j]) => j.status !== "failed")),
       })),
+
+    replaceVersion: async (track, sourceId, download) => {
+      const job = get().jobs[track.id];
+      if (job?.status === "running") return; // yazılan dosyanın altından silme
+      const wasDownloaded = get().downloaded.has(track.id);
+      for (const list of [pending, parked]) {
+        const at = list.findIndex((p) => p.track.id === track.id);
+        if (at >= 0) list.splice(at, 1);
+      }
+      autoRetries.delete(track.id);
+      await removeDownload(track.id);
+      set((s) => {
+        const downloaded = new Set(s.downloaded);
+        downloaded.delete(track.id);
+        const jobs = { ...s.jobs };
+        delete jobs[track.id];
+        return { downloaded, jobs };
+      });
+      if (download || wasDownloaded || (job && !job.speculative)) {
+        await get().enqueue({ ...track, sourceId }, { permanent: true });
+      }
+    },
   };
 });

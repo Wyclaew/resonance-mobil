@@ -7,11 +7,11 @@ import TrackPlayer, {
 } from "react-native-track-player";
 
 import * as Extractor from "../../modules/resonance-extractor";
-import { cachedPath } from "../lib/downloads";
+import { cachedPath, currentSourceId } from "../lib/downloads";
 import { gainForTrack } from "../lib/loudness";
 import { isPlayableHere } from "../lib/localAudio";
 import { getMobileSettings, onCellular } from "../lib/mobileSettings";
-import { findAlternative, findStandIn, isUnavailable } from "../lib/relink";
+import { announceRelink, findAlternative, findStandIn, isUnavailable } from "../lib/relink";
 import { fillIfPlaceholder } from "../lib/repairTracks";
 import { bestThumb } from "../lib/thumbs";
 import { useSettingsStore } from "../store/useSettingsStore";
@@ -170,9 +170,25 @@ export async function sourceFor(track: Track): Promise<{ url: string; local: boo
     // Video silinmiş/engellenmişse parçayı ÖLDÜRME: aynı şarkının başka
     // yüklemesini bul ve kalıcı olarak ona bağlan (lib/relink.ts).
     if (!isUnavailable(e)) throw e;
-    const alternative = await findAlternative(track);
-    if (!alternative) throw e;
-    info = await resolveCached(alternative);
+    // Kuyruktaki kopya eski olabilir: başka cihaz ya da indirme parçayı zaten
+    // yeniden bağlamışsa aramadan o kaynağı kullan (her cihaz ayrı arayıp
+    // parçayı farklı yüklemelere bağlamasın).
+    let dead = track.sourceId;
+    const linked = await currentSourceId(track.id).catch(() => null);
+    if (linked && linked !== track.sourceId) {
+      try {
+        info = await resolveCached(linked);
+        announceRelink(track.id, linked);
+      } catch (e2) {
+        if (!isUnavailable(e2)) throw e2;
+        dead = linked; // o bağlantı da ölü (ör. yanlış eşleşmiş "Outro") → ara
+      }
+    }
+    if (!info) {
+      const alternative = await findAlternative({ ...track, sourceId: dead });
+      if (!alternative) throw e;
+      info = await resolveCached(alternative);
+    }
   }
 
   const stream = Extractor.pickStream(info.streams, quality());

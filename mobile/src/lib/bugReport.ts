@@ -77,6 +77,11 @@ export async function buildReport(opts: { error?: string; steps?: DiagStep[] } =
     `Sıra: ${p.index + 1}/${p.queue.length} · radyo: ${p.radioActive ? (p.radioPlaylistId ?? "?") : "kapalı"} · karışık: ${p.shuffleMode} · tekrar: ${p.repeat}`,
     `Durum: ${p.loading ? "yükleniyor" : "hazır"}${p.error ? ` · hata: ${p.error}` : ""}`,
     `Kayıtlı devam: ${resumeSummary(s.resumeState)}`,
+    `Kenardaki keşif: ${
+      p.savedDiscovery
+        ? `${p.savedDiscovery.index + 1}/${p.savedDiscovery.queue.length} · ${new Date(p.savedDiscovery.savedAt).toISOString()}`
+        : "yok"
+    }`,
     "",
     "── Ayarlar ──",
     `dil ${s.language} · tema ${s.theme} · kalite ${s.audioQuality} · eşitleme ${s.normalizeVolume ? "açık" : "kapalı"} · önden indirme ${s.prefetchEnabled ? "açık" : "kapalı"}`,

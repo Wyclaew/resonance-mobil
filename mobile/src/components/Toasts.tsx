@@ -26,7 +26,8 @@ export function Toasts() {
   const bottom = (inTabs ? TAB_BAR_HEIGHT : 0) + insets.bottom + (miniShown ? MINI_PLAYER_HEIGHT : 0) + 12;
 
   return (
-    <View style={{ position: "absolute", left: 12, right: 12, bottom, gap: 8 }} pointerEvents="box-none">
+    // zIndex: alt sayfaların (Portal, 1000) üstünde kalsın — sayfa açıkken çıkan bildirim görünsün.
+    <View style={{ position: "absolute", left: 12, right: 12, bottom, gap: 8, zIndex: 1001 }} pointerEvents="box-none">
       {toasts.slice(-3).map((toast) => (
         <Animated.View key={toast.id} entering={FadeInDown.duration(200)} exiting={FadeOut.duration(150)}>
           <View

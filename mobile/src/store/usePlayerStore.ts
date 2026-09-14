@@ -6,6 +6,7 @@ import * as engine from "../audio/player";
 import { useSleepTimer } from "../audio/sleepTimer";
 import { prewarmUrls } from "../audio/urlCache";
 import type { RemoteQueue } from "../lib/deviceQueue";
+import { loadDiscoverySession, saveDiscoverySession, type DiscoverySession } from "../lib/discoverySession";
 import { cachedPath, isNetworkError } from "../lib/downloads";
 import { recordPlay } from "../lib/history";
 import { t } from "../lib/i18n.mobile";
@@ -68,8 +69,15 @@ interface PlayerState {
    * Oynat'a basınca buradan başlar; ilerleme çubuğu da bunu gösterir.
    */
   pendingStartMs: number;
+  /**
+   * ⭐ Kenara konmuş keşif partisi: Keşfet çalarken listeden/aramadan başka bir
+   * şey açılınca parti kaybolmaz, burada bekler (`lib/discoverySession.ts`).
+   */
+  savedDiscovery: DiscoverySession | null;
 
   playNow: (track: QueueSource, queue?: QueueSource[], playlistId?: string, startMs?: number) => Promise<void>;
+  /** Kenara konmuş keşfi kaldığı şarkıdan (ya da `index`'teki şarkıdan) sürdür. */
+  resumeDiscovery: (index?: number) => Promise<void>;
   /** Saf rastgele çalma (öneri serpiştirmesi YOK). */
   playShuffled: (tracks: Track[], playlistId?: string) => Promise<void>;
   /** Karma ağırlıklı karışık + araya öneriler + sürekli besleme. */
@@ -447,11 +455,53 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     }
   }
 
+  /** Keşfet mi çalıyor? (öneri radyosunun sanal "Keşfet" listesi) */
+  const inDiscovery = (st: PlayerState) => st.radioActive && st.radioPlaylistId === DISCOVERY_ID && st.queue.length > 0;
+
+  /** Verilen anın keşif partisini kenara koy (kuyruk birazdan başka bir şeyle değişecek). */
+  function stashDiscovery(st: PlayerState, positionMs: number): void {
+    if (!inDiscovery(st) || !st.current) return;
+    const saved = saveDiscoverySession({
+      queue: st.queue,
+      index: st.index,
+      positionMs,
+      seedArtists: st.discoverySeedArtists,
+      filters: st.discoveryFilters,
+      lockedSeedArtist: st.lockedSeedArtist,
+      savedAt: Date.now(),
+    });
+    set({ savedDiscovery: saved });
+    console.log(`[keşfet] parti kenara kondu: ${st.index + 1}/${st.queue.length} · ${st.current.title}`);
+  }
+
+  /**
+   * Kuyruk başka bir şeyle değişmeden hemen önce: çalanın dinlenen kısmını kaydet
+   * ve Keşfet çalıyorsa partiyi kenara koy.
+   *
+   * ⚠️ BUG'DI (kullanıcı raporu 2026-09-14): "Keşfet dışında bir listeden şarkı
+   * açınca Keşfet gidiyor." Ayrıca listeden şarkı açmak bir ÇIKIŞ olduğu hâlde
+   * kaydedilmiyordu — 2 dk dinlenmiş öneri öneri motoruna hiç ulaşmıyordu.
+   */
+  async function leaveCurrent(): Promise<void> {
+    const st = get();
+    if (!st.current) return;
+    if (engine.loadedItemUid() !== st.current.uid) {
+      stashDiscovery(st, st.pendingStartMs);
+      return;
+    }
+    const p = await TrackPlayer.getProgress().catch(() => ({ position: 0, duration: 0 }));
+    const positionMs = Math.round(p.position * 1000);
+    recordOutgoing("jump", positionMs, p.duration > 0 ? Math.round(p.duration * 1000) : st.current.durationMs);
+    stashDiscovery(st, positionMs);
+  }
+
   /** Keşif partisini kuyruk yapıp çalmaya başlar (startDiscovery + reroll ortak). */
   async function startBatch(recs: Recommendation[]): Promise<void> {
     rememberRecs(recs);
     const items = spreadByArtist(recs).map((r) => toRecItem(r, DISCOVERY_ID));
     set({
+      // Yeni parti eskisinin yerini alır: "kaldığın keşif" artık bu.
+      savedDiscovery: saveDiscoverySession(null),
       queue: items,
       radioActive: true,
       radioPlaylistId: DISCOVERY_ID,
@@ -481,8 +531,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     discoveryFilters: [],
     lockedSeedArtist: null,
     pendingStartMs: 0,
+    savedDiscovery: null,
 
     playNow: async (track, queue, playlistId, startMs = 0) => {
+      await leaveCurrent();
       const items = (queue ?? [track]).map((t) => toItem(t, playlistId));
       const idx = Math.max(0, items.findIndex((i) => i.id === track.id));
       const smart = get().shuffleMode === "smart" && !!playlistId && playlistId !== DISCOVERY_ID;
@@ -497,8 +549,31 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       if (smart && playlistId) void fetchAndInterleave(playlistId, items.map((i) => i.id));
     },
 
+    resumeDiscovery: async (at) => {
+      const saved = get().savedDiscovery ?? loadDiscoverySession();
+      if (!saved?.queue.length || inDiscovery(get())) return;
+      await leaveCurrent();
+      const queue = saved.queue.map((i) => ({ ...i, uid: newUid(i.id) }));
+      const index = Math.min(Math.max(0, at ?? saved.index), queue.length - 1);
+      rememberRecs(queue.filter((i) => i.isRecommendation) as unknown as Recommendation[]);
+      discoveryPrewarm = null;
+      set({
+        savedDiscovery: saveDiscoverySession(null),
+        queue,
+        radioActive: true,
+        radioPlaylistId: DISCOVERY_ID,
+        shuffleMode: "smart",
+        lockedSeedArtist: saved.lockedSeedArtist,
+        discoverySeedArtists: saved.seedArtists,
+        discoveryFilters: saved.filters,
+      });
+      console.log(`[keşfet] kaldığın keşif sürüyor: ${index + 1}/${queue.length}`);
+      await startAt(index, { startMs: index === saved.index ? saved.positionMs : 0 });
+    },
+
     playShuffled: async (tracks, playlistId) => {
       if (!tracks.length) return;
+      await leaveCurrent();
       const shuffled = [...tracks];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -517,6 +592,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
     startSmartShuffle: async (tracks, playlistId) => {
       if (!tracks.length) return;
+      await leaveCurrent();
       const items = weightedShuffle(tracks).map((t) => toItem(t, playlistId));
       set({ queue: items, radioActive: true, radioPlaylistId: playlistId, shuffleMode: "smart" });
       await startAt(0);
@@ -809,6 +885,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
     adoptRemoteQueue: (remote) => {
       if (!remote.queue.length) return;
+      // Başka cihazdan devralmak da Keşfet'i silmesin. Konum sıfırlamadan ÖNCE
+      // istenir (yerel çağrılar sırayla işlenir); anlık durum şimdi alınır.
+      const before = get();
+      if (inDiscovery(before)) {
+        void TrackPlayer.getProgress()
+          .then((p) => stashDiscovery(before, Math.round(p.position * 1000)))
+          .catch(() => stashDiscovery(before, before.pendingStartMs));
+      }
       const index = Math.min(Math.max(0, remote.queueIndex), remote.queue.length - 1);
       engine.markUnloaded();
       void TrackPlayer.reset().catch(() => {});
@@ -835,6 +919,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     refreshUpcoming: () => prepareNext(),
 
     restore: () => {
+      set({ savedDiscovery: loadDiscoverySession() });
       const raw = useSettingsStore.getState().resumeState;
       if (get().current) {
         console.log("[devam] kuyruk zaten dolu — geri yükleme atlandı");

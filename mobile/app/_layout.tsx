@@ -18,7 +18,9 @@ import { AddToPlaylistSheet } from "../src/components/AddToPlaylistSheet";
 import { BarMark } from "../src/components/BarMark";
 import { MiniPlayer } from "../src/components/MiniPlayer";
 import { Toasts } from "../src/components/Toasts";
+import { PortalHost } from "../src/components/Portal";
 import { TrackSheet } from "../src/components/TrackSheet";
+import { VersionSheet } from "../src/components/VersionSheet";
 import { Button } from "../src/components/ui";
 import { sendReport } from "../src/lib/bugReport";
 import { getDb } from "../src/lib/db";
@@ -145,6 +147,9 @@ export default function RootLayout() {
         <MiniPlayer />
         <AddToPlaylistSheet />
         <TrackSheet />
+        <VersionSheet />
+        {/* Alt sayfalar burada, ekranların ve mini oynatıcının üstünde çizilir (Modal değil — Portal.tsx). */}
+        <PortalHost />
         <Toasts />
       </View>
     </GestureHandlerRootView>

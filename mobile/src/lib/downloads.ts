@@ -14,8 +14,9 @@ import * as Extractor from "../../modules/resonance-extractor";
 import type { AudioStreamInfo, ResolvedTrack, StreamQuality } from "../../modules/resonance-extractor";
 import { invalidateUrl, resolveCached } from "../audio/urlCache";
 import { getDb } from "./db";
+import { errorText, isNetworkError, NetworkDownError } from "./netError";
 import { ensureTrack } from "./playlists";
-import { findAlternative, isUnavailable } from "./relink";
+import { findAlternative, unavailableKind, type UnavailableKind } from "./relink";
 import type { Track } from "../types";
 
 const CHUNK = 1024 * 1024; // 1 MB
@@ -26,24 +27,16 @@ const CHUNK_TIMEOUT_MS = 30_000;
 /** Adres/format kısıtlı (403/410) — aynı adresle yeniden denemek boşuna. */
 class RestrictedError extends Error {}
 
-/** Ağ yok / bağlantı koptu — indirme "başarısız" değil, bağlantı gelince devam. */
-export class NetworkDownError extends Error {}
+export { NetworkDownError, isNetworkError } from "./netError";
 
-const NETWORK_HINTS = [
-  "network request failed",
-  "unable to resolve host",
-  "unknownhost",
-  "failed to connect",
-  "timeout",
-  "zaman aşımı",
-  "aborted",
-  "software caused connection abort",
-];
-
-export function isNetworkError(e: unknown): boolean {
-  if (e instanceof NetworkDownError) return true;
-  const text = String(e instanceof Error ? e.message : e).toLowerCase();
-  return NETWORK_HINTS.some((h) => text.includes(h));
+/**
+ * Kayıt çalınamıyor ve otomatik arama DOĞRULANMIŞ başka sürüm bulamadı.
+ * Yeniden denemek boşuna — kullanıcı "Sürüm seç" ile elle seçebilir.
+ */
+export class NoPlayableVersionError extends Error {
+  constructor(readonly kind: UnavailableKind) {
+    super(`çalınabilir sürüm yok (${kind})`);
+  }
 }
 
 export interface DownloadProgress {
@@ -148,19 +141,24 @@ export async function downloadTrack(
   await ensureTrack(track);
   const trackId = track.id;
   const quality = opts.quality ?? "high";
-  let videoId = track.sourceId;
+  // ⚠️ Kaynağı DB'den oku: kuyruğa bellekteki parça nesnesi girer ve başka
+  // cihazın (ya da önceki denemenin) yeniden bağlamasından habersiz olabilir.
+  // Telefonda aynı "[alternatif] Wicked Game" satırı bu yüzden tekrar çıkıyordu:
+  // ölü video yeniden denenip her seferinde yeniden arama yapılıyordu.
+  let videoId = (await currentSourceId(trackId)) ?? track.sourceId;
 
   let info: ResolvedTrack;
   try {
     info = await resolveCached(videoId);
   } catch (e) {
-    if (isNetworkError(e)) throw new NetworkDownError(String(e instanceof Error ? e.message : e));
+    if (isNetworkError(e)) throw new NetworkDownError(errorText(e));
     // ⚠️ BUG'DI (kullanıcı raporu: "Lost on You", "Wicked Game" indirilemedi):
     // video YouTube'da "not available". Çalma yolu bu durumda aynı şarkının
     // başka yüklemesine bağlanıyordu, indirme ise doğrudan hata veriyordu.
-    if (!isUnavailable(e)) throw e;
-    const alternative = await findAlternative(track);
-    if (!alternative) throw new Error("video kullanılamıyor ve eşdeğer yükleme bulunamadı");
+    const kind = unavailableKind(e);
+    if (!kind || kind === "bot") throw e;
+    const alternative = await findAlternative({ ...track, sourceId: videoId });
+    if (!alternative) throw new NoPlayableVersionError(kind);
     videoId = alternative;
     info = await resolveCached(videoId);
   }
@@ -233,6 +231,13 @@ async function downloadStream(
 
   await recordCache(trackId, file.uri, written, stream.format, opts.permanent ?? false);
   return { path: file.uri, bytes: written, format: stream.format };
+}
+
+/** Parçanın DB'deki güncel YouTube kimliği (yeniden bağlanmış olabilir). */
+export async function currentSourceId(trackId: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ source_id: string }[]>(`SELECT source_id FROM tracks WHERE id = $1`, [trackId]);
+  return rows[0]?.source_id || null;
 }
 
 async function recordCache(

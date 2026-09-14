@@ -11,6 +11,7 @@ import { useLang, useT } from "../src/lib/i18n.mobile";
 import { useDownloadStore } from "../src/store/useDownloadStore";
 import { usePlayerStore } from "../src/store/usePlayerStore";
 import { useSettingsStore } from "../src/store/useSettingsStore";
+import { useVersionPicker } from "../src/store/useVersionPicker";
 import type { Track } from "../src/types";
 
 type Row = Track & { bytes: number; downloaded: number };
@@ -96,7 +97,16 @@ export default function Downloads() {
                             : (j.error ?? "")}
                       </Text>
                     </View>
-                    {j.status === "failed" || j.status === "waiting" ? (
+                    {j.status === "failed" && j.needsPick ? (
+                      // Otomatik arama çalınabilir sürüm bulamadı: yeniden denemek boşuna, seçtir.
+                      <Button
+                        small
+                        kind="ghost"
+                        icon="wand"
+                        label={t("m.version.pick")}
+                        onPress={() => useVersionPicker.getState().open(j.track, { download: true })}
+                      />
+                    ) : j.status === "failed" || j.status === "waiting" ? (
                       <Button small kind="ghost" icon="refresh" label={t("error.retry")} onPress={() => useDownloadStore.getState().retry(j.track.id)} />
                     ) : null}
                   </View>
