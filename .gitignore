@@ -21,3 +21,6 @@ mobile/modules/*/android/.gradle/
 .claude/ctx-journal.md
 .claude/context-ledger.md
 .claude/ctx-spill/
+**/.claude/ctx-journal.md
+**/.claude/context-ledger.md
+**/.claude/ctx-spill/
