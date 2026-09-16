@@ -3,6 +3,7 @@ import * as Network from "expo-network";
 import { prewarmUrls } from "../audio/urlCache";
 import { autoBackup } from "./dbBackup";
 import { getDb } from "./db";
+import { ensureDiscoverWeek } from "./discoverWeek";
 import { pruneCache } from "./downloads";
 import { auditRelinks } from "./relink";
 import { checkForUpdate } from "./updater";
@@ -98,6 +99,9 @@ async function wifiTasks(): Promise<void> {
     if (net.type !== Network.NetworkStateType.WIFI) return;
     // Keşfet'e basınca anında başlasın (kayıt yazılmaz, kullanılınca yazılır).
     if (!usePlayerStore.getState().current) void prewarmDiscovery();
+    // Haftalık Keşif: masaüstü de üretir, ama telefon tek cihazsa hafta listesi
+    // hiç oluşmazdı. Ayar SENKRONLU → aynı hafta listesi her cihazda aynı kalır.
+    void ensureDiscoverWeek().catch((e) => console.warn("[haftalık keşif] üretilemedi:", e));
     // Eski eşleştirmenin yanlış şarkıya bağladığı parçaları onar (her bağlantı bir kez).
     const relinked = await auditRelinks().catch(() => 0);
     if (relinked) void usePlaylistStore.getState().refresh();
