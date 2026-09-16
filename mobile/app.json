@@ -3,7 +3,7 @@
     "name": "Resonance",
     "slug": "resonance-mobil",
     "scheme": "resonance",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -25,9 +25,10 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
-      "versionCode": 3
+      "versionCode": 4
     },
     "plugins": [
       "expo-sqlite",

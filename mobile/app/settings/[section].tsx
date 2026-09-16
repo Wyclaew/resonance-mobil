@@ -7,7 +7,7 @@ import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Icon } from "../../src/components/Icon";
 import { useBottomSpace } from "../../src/components/MiniPlayer";
 import { CatDrawing, Confetti, HeartDrawing } from "../../src/components/SecretCat";
-import { Button, Divider, EmptyState, Eyebrow, Row, Section, Segmented, Toggle, TopBar } from "../../src/components/ui";
+import { Button, Divider, EmptyState, Eyebrow, InfoNote, Row, Section, Segmented, Toggle, TopBar } from "../../src/components/ui";
 import { blockedArtists, loadBlockedArtists, unblockArtist } from "../../src/lib/blocked";
 import { exportJson, importJsonFile, listBackups, backupDb, restoreBackup, type BackupInfo } from "../../src/lib/dbBackup";
 import { sendReport } from "../../src/lib/bugReport";
@@ -22,7 +22,9 @@ import { useDownloadStore } from "../../src/store/useDownloadStore";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { usePlaylistStore } from "../../src/store/usePlaylistStore";
 import { useSettingsStore, type Theme } from "../../src/store/useSettingsStore";
+import { checkForUpdate } from "../../src/lib/updater";
 import { useToastStore } from "../../src/store/useToastStore";
+import { useUpdate } from "../../src/store/useUpdate";
 import { ACCENTS, useColors } from "../../src/theme";
 
 type SectionId = "playback" | "recs" | "storage" | "appearance" | "data" | "diagnostics" | "about";
@@ -157,7 +159,7 @@ function Recs() {
   }, [reload]);
   return (
     <>
-      <Text className="text-muted px-5 pt-2 text-[13px] leading-5">{t("settings.recIntro")}</Text>
+      <InfoNote label={t("m.settings.recsSub")} text={t("settings.recIntro")} />
       <Section title={t("settings.recTitle")}>
         <Row title={t("settings.recTitle")} sub={t("settings.recDesc")} right={<Toggle value={s.recEnabled} onChange={(v) => void s.update("recEnabled", v)} />} />
         <Choice
@@ -182,8 +184,7 @@ function Recs() {
           options={[7, 14, 30, 90, 365].map((d) => ({ value: d, label: `${d} ${t("settings.days")}` }))}
         />
       </Section>
-      <Section title={t("settings.blockedHeader")}>
-        <Text className="text-muted -mt-1 px-5 pb-2 text-[12px]">{t("settings.blockedDesc")}</Text>
+      <Section title={t("settings.blockedHeader")} info={t("settings.blockedDesc")}>
         {blocked.length ? (
           blocked.map((a) => (
             <Row
@@ -302,8 +303,7 @@ function Appearance() {
           ]}
         />
       </Section>
-      <Section title={t("settings.accentColor")}>
-        <Text className="text-muted -mt-1 px-5 text-[12px]">{t("settings.accentColorDesc")}</Text>
+      <Section title={t("settings.accentColor")} info={t("settings.accentColorDesc")}>
         <View className="flex-row flex-wrap gap-3 px-5 pt-3">
           {ACCENTS.map((a) => {
             const on = s.accentColor.toLowerCase() === a.v;
@@ -359,7 +359,7 @@ function Data() {
 
   return (
     <>
-      <Text className="text-muted px-5 pt-2 text-[13px] leading-5">{t("m.settings.dataIntro")}</Text>
+      <InfoNote label={t("m.settings.dataSub")} text={t("m.settings.dataIntro")} />
       <View className="flex-row gap-2 px-5 pt-4">
         <Button kind="primary" icon="upload" label={t("data.exportBackup")} busy={busy === "export"} onPress={() => void guard("export", exportJson)} className="flex-1" />
         <Button
@@ -380,12 +380,11 @@ function Data() {
         />
       </View>
 
-      <Section title={t("data.autoBackups")} action={t("data.backupNow")} onAction={() => void guard("backup", async () => {
+      <Section title={t("data.autoBackups")} info={t("m.settings.autoBackupsSub")} action={t("data.backupNow")} onAction={() => void guard("backup", async () => {
         await backupDb();
         setBackups(listBackups());
         show(t("m.settings.backupDone"), "success");
       })}>
-        <Text className="text-muted -mt-1 px-5 pb-2 text-[12px] leading-[17px]">{t("m.settings.autoBackupsSub")}</Text>
         {backups.length ? (
           backups.map((b) => (
             <Row
@@ -432,8 +431,7 @@ function Diagnostics() {
   const lang = useLang();
   return (
     <>
-      <Section title={t("settings.diagnose")} className="mt-2">
-        <Text className="text-muted -mt-1 px-5 text-[12px] leading-[17px]">{t("m.settings.diagnoseSub")}</Text>
+      <Section title={t("settings.diagnose")} info={t("m.settings.diagnoseSub")} className="mt-2">
         <View className="flex-row gap-2 px-5 pt-3">
           <Button
             kind="primary"
@@ -486,8 +484,7 @@ function Diagnostics() {
           </View>
         ))}
       </Section>
-      <Section title={t("settings.problems")} action={problems.length ? t("settings.problemsClear") : undefined} onAction={clearProblems}>
-        <Text className="text-muted -mt-1 px-5 pb-2 text-[12px] leading-[17px]">{t("settings.problemsDesc")}</Text>
+      <Section title={t("settings.problems")} info={t("settings.problemsDesc")} action={problems.length ? t("settings.problemsClear") : undefined} onAction={clearProblems}>
         {problems.length ? (
           problems.map((p) => (
             <View key={p.message} className="px-5 py-2">
@@ -513,6 +510,7 @@ const CAT_TAPS = 7;
 function About() {
   const t = useT();
   const [taps, setTaps] = useState(0);
+  const [checking, setChecking] = useState(false);
   const [party, setParty] = useState(false);
   const version = Constants.expoConfig?.version ?? "—";
   return (
@@ -524,6 +522,26 @@ function About() {
       <Text className="text-muted mt-3 text-[13px] leading-5">{t("m.about.tagline")}</Text>
       <Text className="text-faint mt-3 text-[12px] leading-[18px]">{t("about.disclaimer")}</Text>
       <Text className="text-faint mt-3 text-[12px]">{t("m.about.builtWith")}</Text>
+      <Button
+        kind="secondary"
+        small
+        icon="download"
+        label={checking ? t("m.update.checking") : t("m.update.check")}
+        busy={checking}
+        className="mt-4 self-start"
+        onPress={() =>
+          void (async () => {
+            setChecking(true);
+            try {
+              const info = await checkForUpdate({ manual: true });
+              if (info) useUpdate.getState().prompt(info);
+              else useToastStore.getState().show(t("m.update.upToDate", { version }), "info");
+            } finally {
+              setChecking(false);
+            }
+          })()
+        }
+      />
       <Divider inset={0} />
       <View className="mt-6 flex-row items-center">
         <Text className="text-faint text-[11px]" style={{ fontFamily: "JetBrainsMono_500Medium", letterSpacing: 1.4 }}>

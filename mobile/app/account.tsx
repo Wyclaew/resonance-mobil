@@ -1,6 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { Icon } from "../src/components/Icon";
@@ -10,8 +10,16 @@ import { backupDb } from "../src/lib/dbBackup";
 import { getDeviceId } from "../src/lib/device";
 import { ago } from "../src/lib/fmt";
 import { useLang, useT } from "../src/lib/i18n.mobile";
-import { completePasswordReset, getSupabase, resetPassword, signIn, signOut, signUp } from "../src/lib/sync/client";
-import { isSyncConfigured } from "../src/lib/sync/config";
+import {
+  completePasswordReset,
+  getSupabase,
+  resetPassword,
+  resetSupabase,
+  signIn,
+  signOut,
+  signUp,
+} from "../src/lib/sync/client";
+import { isSyncConfigured, setOwnProject, syncUrl, usingOwnProject } from "../src/lib/sync/config";
 import {
   SCHEMA_OUTDATED,
   firstSyncPullReplace,
@@ -20,7 +28,10 @@ import {
   hasSyncedBefore,
   startSync,
   stopSync,
+  repairSync,
   subscribeSync,
+  syncHealth,
+  type TableHealth,
   syncNow,
   type SyncState,
 } from "../src/lib/sync/engine";
@@ -296,6 +307,7 @@ export default function Account() {
               </Card>
               <Text className="text-faint mt-3 text-[12px] leading-[17px]">{t("sync.whatSyncs")}</Text>
             </View>
+            <SyncHealthCard />
             <View className="mt-5">
               <Row
                 icon="x"
@@ -313,6 +325,9 @@ export default function Account() {
           </View>
         )}
 
+        {/* Kendi Supabase projen: giriş yapılmış da olsa yapılmamış da olsa görünür. */}
+        <OwnProjectCard onChanged={() => setUserEmail(null)} />
+
         {err ? <Text className="text-down mt-4 px-5 text-[13px]">{err}</Text> : null}
         {notice ? <Text className="text-accent mt-4 px-5 text-[13px]">{notice}</Text> : null}
 
@@ -324,6 +339,196 @@ export default function Account() {
           </Text>
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * ⭐ SENKRON SAĞLIĞI (masaüstü v1.9.5): tablo başına buradaki ve buluttaki satır
+ * sayısı. Masaüstünde sayfalama hatası yüzünden 241 → 163 düşen liste, böyle bir
+ * panel olmadığı için haftalarca fark edilmemişti. "Onar" iki yönde tam tur atar.
+ */
+/**
+ * ⭐ KENDİ SUPABASE PROJEN (masaüstü v1.9.6). Depo herkese açık ve APK'daki
+ * varsayılan proje kuran HERKESİ aynı projeye düşürür — veri güvende (RLS her
+ * satırı kullanıcıya kilitler) ama kota ve e-posta limiti ortak. Kendi projesini
+ * veren kendi kotasında çalışır.
+ */
+function OwnProjectCard({ onChanged }: { onChanged: () => void }) {
+  const t = useT();
+  const c0 = useColors();
+  const show = useToastStore((s) => s.show);
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [key, setKey] = useState("");
+  const own = usingOwnProject();
+
+  async function save(reset: boolean) {
+    setOwnProject(reset ? "" : url, reset ? "" : key);
+    // Jeton eski projeye ait: önce çık, sonra istemciyi düşür.
+    try {
+      stopSync();
+      await signOut();
+    } catch {
+      /* zaten çıkmış olabilir */
+    }
+    resetSupabase();
+    setOpen(false);
+    setUrl("");
+    setKey("");
+    onChanged();
+    show(reset ? t("sync.ownCleared") : t("sync.ownSaved"), "success");
+  }
+
+  return (
+    <View className="mt-6 px-5">
+      <View className="mb-2 flex-row items-center">
+        <Eyebrow>{t("sync.ownTitle")}</Eyebrow>
+        <Text className="text-faint ml-2 text-[11px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
+          {own ? t("sync.ownYours") : t("sync.ownDefault")}
+        </Text>
+      </View>
+      <Card>
+        <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center p-4">
+          <Icon name="database" size={18} color={c0.muted} />
+          <Text className="text-text ml-3 flex-1 text-[14px]" numberOfLines={1}>
+            {own ? syncUrl() : t("sync.ownDefault")}
+          </Text>
+          <Icon name={open ? "chevronUp" : "chevronDown"} size={18} color={c0.faint} />
+        </Pressable>
+        {open ? (
+          <View className="px-4 pb-4">
+            <Text className="text-muted text-[12px] leading-[17px]">{t("sync.ownBody")}</Text>
+            <Text className="text-faint mt-2 text-[11px] leading-[16px]">{t("sync.ownSteps")}</Text>
+            <TextInput
+              value={url}
+              onChangeText={setUrl}
+              placeholder="https://xxxx.supabase.co"
+              placeholderTextColor={c0.faint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="bg-bg border-border text-text mt-3 h-11 rounded-xl border px-3 text-[13px]"
+            />
+            <TextInput
+              value={key}
+              onChangeText={setKey}
+              placeholder={t("sync.ownKeyPlaceholder")}
+              placeholderTextColor={c0.faint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="bg-bg border-border text-text mt-2 h-11 rounded-xl border px-3 text-[13px]"
+            />
+            <View className="mt-3 flex-row gap-2">
+              <Button
+                small
+                kind="primary"
+                label={t("sync.ownSave")}
+                disabled={!url.trim() || !key.trim()}
+                onPress={() => void save(false)}
+              />
+              {own ? <Button small kind="ghost" label={t("sync.ownReset")} onPress={() => void save(true)} /> : null}
+            </View>
+          </View>
+        ) : null}
+      </Card>
+    </View>
+  );
+}
+
+function SyncHealthCard() {
+  const t = useT();
+  const c = useColors();
+  const [rows, setRows] = useState<TableHealth[] | null>(null);
+  const [busy, setBusy] = useState<"count" | "repair" | null>(null);
+
+  const count = useCallback(async () => {
+    setBusy("count");
+    try {
+      setRows(await syncHealth());
+    } catch (e) {
+      console.warn("[sync] sağlık sayılamadı:", e);
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  const diff = rows?.filter((r) => r.cloud !== null && r.cloud !== r.local).length ?? 0;
+  return (
+    <View className="mt-6 px-5">
+      <View className="mb-2 flex-row items-center justify-between">
+        <Eyebrow>{t("sync.healthTitle")}</Eyebrow>
+        <Pressable onPress={() => void count()} hitSlop={10}>
+          <Text className="text-accent text-[12px]" style={{ fontFamily: "Inter_500Medium" }}>
+            {t("sync.healthRefresh")}
+          </Text>
+        </Pressable>
+      </View>
+      <Card>
+        <View className="p-4">
+          <Text className="text-muted text-[12px] leading-[17px]">{t("sync.healthBody")}</Text>
+          {busy === "count" && !rows ? (
+            <Text className="text-faint mt-3 text-[12px]">{t("sync.working")}</Text>
+          ) : null}
+          {rows?.length ? (
+            <>
+              <View className="mt-3 flex-row">
+                <Text className="text-faint flex-1 text-[11px]">{t("sync.healthTable")}</Text>
+                <Text className="text-faint w-16 text-right text-[11px]">{t("sync.healthLocal")}</Text>
+                <Text className="text-faint w-16 text-right text-[11px]">{t("sync.healthCloud")}</Text>
+              </View>
+              {rows.map((r) => {
+                const bad = r.cloud !== null && r.cloud !== r.local;
+                return (
+                  <View key={r.table} className="mt-1.5 flex-row">
+                    <Text className="flex-1 text-[12px]" style={{ color: bad ? c.down : c.muted }} numberOfLines={1}>
+                      {r.table}
+                    </Text>
+                    <Text
+                      className="w-16 text-right text-[12px]"
+                      style={{ color: bad ? c.down : c.text, fontFamily: "JetBrainsMono_400Regular" }}
+                    >
+                      {r.local}
+                    </Text>
+                    <Text
+                      className="w-16 text-right text-[12px]"
+                      style={{ color: bad ? c.down : c.text, fontFamily: "JetBrainsMono_400Regular" }}
+                    >
+                      {r.cloud ?? "—"}
+                    </Text>
+                  </View>
+                );
+              })}
+              <Text className="mt-3 text-[12px]" style={{ color: diff ? c.down : c.accent }}>
+                {diff ? t("sync.healthDiff", { n: diff }) : t("sync.healthOk")}
+              </Text>
+            </>
+          ) : null}
+          <View className="mt-3 flex-row items-center">
+            <Button
+              small
+              kind={diff ? "primary" : "secondary"}
+              icon="refresh"
+              label={t("sync.healthRepair")}
+              busy={busy === "repair"}
+              onPress={() =>
+                void (async () => {
+                  setBusy("repair");
+                  try {
+                    await repairSync();
+                    await usePlaylistStore.getState().refresh();
+                    setRows(await syncHealth());
+                  } catch (e) {
+                    console.warn("[sync] onarım başarısız:", e);
+                  } finally {
+                    setBusy(null);
+                  }
+                })()
+              }
+            />
+            <Text className="text-faint ml-3 flex-1 text-[11px] leading-[15px]">{t("sync.healthRepairHint")}</Text>
+          </View>
+        </View>
+      </Card>
     </View>
   );
 }

@@ -5,16 +5,18 @@ import { autoBackup } from "./dbBackup";
 import { getDb } from "./db";
 import { pruneCache } from "./downloads";
 import { auditRelinks } from "./relink";
+import { checkForUpdate } from "./updater";
 import { onTracksRepaired, repairPlaceholderTracks } from "./repairTracks";
 import { t } from "./i18n.mobile";
 import { getSupabase, wasSignOutIntentional } from "./sync/client";
-import { onRemoteApplied } from "./sync/engine";
+import { onPlaceholders, onRemoteApplied } from "./sync/engine";
 import { useCovers } from "../store/useCovers";
 import { useDownloadStore } from "../store/useDownloadStore";
 import { prewarmDiscovery, usePlayerStore } from "../store/usePlayerStore";
 import { usePlaylistStore } from "../store/usePlaylistStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { useToastStore } from "../store/useToastStore";
+import { useUpdate } from "../store/useUpdate";
 import type { Track } from "../types";
 
 /**
@@ -33,6 +35,12 @@ export function runStartupTasks(): void {
     void usePlaylistStore.getState().refresh();
     if (repairTimer) clearTimeout(repairTimer);
     repairTimer = setTimeout(() => void repairPlaceholderTracks(), 8000);
+  });
+  // Pull eksik üyelik için yer tutucu açtı → adlarını hemen doldurmaya çalış
+  // (eskiden onarım yalnız açılışta ve Wi-Fi'a geçince koşuyordu).
+  onPlaceholders(() => {
+    if (repairTimer) clearTimeout(repairTimer);
+    repairTimer = setTimeout(() => void repairPlaceholderTracks(), 3000);
   });
   onTracksRepaired(() => {
     void usePlaylistStore.getState().refresh();
@@ -64,6 +72,21 @@ export function runStartupTasks(): void {
       useToastStore.getState().show(t("sync.sessionLost"), "error");
     }
   });
+
+  // ⭐ Yeni sürüm denetimi (kullanıcı isteği): açılışta bir kez, ağ varsa.
+  // İstek küçük (GitHub Releases JSON); indirmeyi KULLANICI onaylar.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const net = await Network.getNetworkStateAsync();
+        if (!net.isConnected) return;
+        const info = await checkForUpdate();
+        if (info) useUpdate.getState().prompt(info);
+      } catch (e) {
+        console.warn("[güncelleme] denetlenemedi:", e);
+      }
+    })();
+  }, 9000);
 
   // Ağ işleri yalnız Wi-Fi'da ve biraz gecikmeli: açılış anı zaten yoğun.
   setTimeout(() => void wifiTasks(), 6000);

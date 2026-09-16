@@ -279,6 +279,13 @@ CREATE TABLE IF NOT EXISTS artist_prefs (
                   );
 `,
   },
+  {
+    version: 9,
+    description: "playlist_folders",
+    sql: `
+ALTER TABLE playlists ADD COLUMN folder TEXT;
+`,
+  },
 ];
 
-export const LATEST_VERSION = 8;
+export const LATEST_VERSION = 9;

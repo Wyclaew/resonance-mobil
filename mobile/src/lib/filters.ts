@@ -1,5 +1,6 @@
 // ⚠️ MASAÜSTÜNDEN KOPYALANDI — mobil tarafta DÜZENLEME.
 // Kaynak: Resonance/src/lib/filters.ts  ·  Yeniden kopyala: python3 scripts/sync-core.py
+import { shuffleArray } from "./recommender";
 import type { TrKey } from "./i18n";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -120,7 +121,9 @@ export function queriesFor(ids: string[]): string[] {
   const sel = ids.map(filterById).filter(Boolean) as DiscoveryFilter[];
   const moods = sel.filter((f) => f.kind === "mood");
   const genres = sel.filter((f) => f.kind === "genre");
-  const shuffle = <T,>(a: T[]) => [...a].sort(() => Math.random() - 0.5);
+  // Tarafsız karıştırma (recommender.ts): `sort(() => Math.random() - 0.5)`
+  // ilk öğeleri öne yığar.
+  const shuffle = shuffleArray;
 
   if (moods.length > 0 && genres.length > 0) {
     // ⭐ HER TÜRE BİR SORGU GARANTİSİ. Eskiden tüm mood×genre çiftleri üretilip

@@ -1,7 +1,8 @@
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Switch, Text, View, type ViewStyle } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hapticSelect } from "../lib/haptics";
@@ -91,19 +92,26 @@ export function Section({
   title,
   action,
   onAction,
+  info,
   children,
   className = "",
 }: {
   title: string;
   action?: string;
   onAction?: () => void;
+  /** Uzun açıklama: başlığın yanındaki ⓘ'ye basınca açılır (kullanıcı isteği). */
+  info?: string;
   children: ReactNode;
   className?: string;
 }) {
+  const [open, setOpen] = useState(false);
   return (
     <View className={`mt-7 ${className}`}>
       <View className="mb-2 flex-row items-center justify-between px-5">
-        <Eyebrow>{title}</Eyebrow>
+        <View className="flex-1 flex-row items-center">
+          <Eyebrow>{title}</Eyebrow>
+          {info ? <InfoButton open={open} onPress={() => setOpen((v) => !v)} /> : null}
+        </View>
         {action && onAction ? (
           <Pressable onPress={onAction} hitSlop={10}>
             <Text className="text-accent text-[12px]" style={{ fontFamily: "Inter_500Medium" }}>
@@ -112,7 +120,55 @@ export function Section({
           </Pressable>
         ) : null}
       </View>
+      {info && open ? (
+        <Animated.View entering={FadeIn.duration(140)}>
+          <Text className="text-muted -mt-1 px-5 pb-2 text-[12px] leading-[17px]">{info}</Text>
+        </Animated.View>
+      ) : null}
       {children}
+    </View>
+  );
+}
+
+/**
+ * ⭐ Uzun açıklamalar ⓘ ARKASINDA — kullanıcı isteği (2026-09-16): "ayarlardaki
+ * açıklamalar ve uzun yazılar bir düğmeye basınca görünsün". Kapalıyken ekranı
+ * doldurmaz, açıkken tam metin görünür (kısaltma/üç nokta YOK).
+ */
+function InfoButton({ open, onPress }: { open: boolean; onPress: () => void }) {
+  const c = useColors();
+  const t = useT();
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={12}
+      accessibilityRole="button"
+      accessibilityLabel={t("m.common.info")}
+      accessibilityState={{ expanded: open }}
+      className="ml-1.5 h-7 w-7 items-center justify-center rounded-full"
+      style={{ backgroundColor: open ? c.surface3 : "transparent" }}
+    >
+      <Icon name="info" size={15} color={open ? c.accent : c.faint} />
+    </Pressable>
+  );
+}
+
+/** Başlıksız uzun açıklama (bölüm başlığı olmayan yerler için): tek satır + ⓘ. */
+export function InfoNote({ label, text }: { label: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View className="px-5 pt-2">
+      <View className="flex-row items-center">
+        <Text className="text-muted flex-1 text-[13px]" numberOfLines={2}>
+          {label}
+        </Text>
+        <InfoButton open={open} onPress={() => setOpen((v) => !v)} />
+      </View>
+      {open ? (
+        <Animated.View entering={FadeIn.duration(140)}>
+          <Text className="text-muted mt-1 text-[12px] leading-[17px]">{text}</Text>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }

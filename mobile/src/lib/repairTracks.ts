@@ -73,11 +73,16 @@ async function oembed(videoId: string): Promise<Meta | null> {
 async function writeMeta(id: string, m: Meta): Promise<void> {
   const db = await getDb();
   await db.execute(
+    // ⚠️ `updated_at` ŞART: yer tutucu 0 ile açılıyor, push `updated_at > last_pushed`
+    // ile seçiyor → damgasız yazılan ad buluta HİÇ çıkmıyordu (masaüstündeki oy
+    // hatasının aynısı). Sunucudaki `keep_newer_row` tetikleyicisi de damgayı
+    // artırmayan yazmayı sessizce reddediyor.
     `UPDATE tracks SET title = $1, artist = $2,
             duration_ms = CASE WHEN $3 > 0 THEN $3 ELSE duration_ms END,
-            thumbnail = COALESCE($4, thumbnail)
+            thumbnail = COALESCE($4, thumbnail),
+            updated_at = $6
       WHERE id = $5 AND title = ''`,
-    [m.title, m.artist, m.durationMs, m.thumbnail, id]
+    [m.title, m.artist, m.durationMs, m.thumbnail, id, Date.now()]
   );
   for (const fn of metaListeners) fn(id, m);
 }

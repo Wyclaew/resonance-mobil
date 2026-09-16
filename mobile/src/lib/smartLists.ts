@@ -3,6 +3,7 @@
 import type { Track } from "../types";
 import { getDb, isTauri } from "./db";
 import type { TrKey } from "./i18n";
+import { discoverWeekTracks } from "./discoverWeek";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AKILLI LİSTELER — kendini güncelleyen, sorgu tabanlı listeler.
@@ -16,6 +17,7 @@ import type { TrKey } from "./i18n";
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type SmartListId =
+  | "discoverWeek"
   | "mostPlayed"
   | "neverFinished"
   | "night"
@@ -29,6 +31,9 @@ export interface SmartList {
 }
 
 export const SMART_LISTS: SmartList[] = [
+  // Haftalık Keşif: sorgu değil, haftada bir üretilen kayıtlı liste
+  // (`discoverWeek.ts`). Kalıcı playlist OLMAMASININ nedeni orada yazıyor.
+  { id: "discoverWeek", labelKey: "smart.discoverWeek", descKey: "smart.discoverWeekDesc" },
   { id: "mostPlayed", labelKey: "smart.mostPlayed", descKey: "smart.mostPlayedDesc" },
   { id: "completed", labelKey: "smart.completed", descKey: "smart.completedDesc" },
   { id: "night", labelKey: "smart.night", descKey: "smart.nightDesc" },
@@ -42,6 +47,9 @@ const SELECT = `SELECT t.id, t.source, t.source_id AS sourceId, t.title, t.artis
 function queryFor(id: SmartListId): { sql: string; params: unknown[] } {
   const days30 = Date.now() - 30 * 24 * 3600 * 1000;
   switch (id) {
+    case "discoverWeek":
+      // Buraya düşmez (üstte yakalanır); tip bütünlüğü için.
+      return { sql: `${SELECT} FROM tracks t WHERE 0`, params: [] };
     case "mostPlayed":
       return {
         sql: `${SELECT}, COUNT(*) AS n
@@ -97,6 +105,9 @@ function queryFor(id: SmartListId): { sql: string; params: unknown[] } {
 
 export async function runSmartList(id: SmartListId): Promise<Track[]> {
   if (!isTauri()) return [];
+  // Haftalık Keşif SQL değil: haftada bir öneri motoruyla üretilip ayarlarda
+  // saklanır (senkronlanır → tüm cihazlarda aynı liste).
+  if (id === "discoverWeek") return discoverWeekTracks();
   try {
     const db = await getDb();
     const { sql, params } = queryFor(id);

@@ -1,5 +1,5 @@
-import { useEffect, type ReactNode } from "react";
-import { BackHandler, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { BackHandler, Keyboard, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -35,6 +35,19 @@ export function Sheet({
   // açıldıktan sonra büyüyünce (dinleme karnesi geç yüklenir) JS'e göre y=222 h=692
   // iken ekranda ilk dizilimdeki y=403'te kalıyor, son satırlar ekranın altından
   // taşıp görünmüyor ve dokunulamıyordu ("Listeden çıkar", "Başka sürüm seç").
+  // ⌨️ Klavye açılınca sayfa yukarı çıksın — kullanıcı raporu (2026-09-16):
+  // "yeni liste adını yazarken kutu klavyenin altında kalıyor, ne yazdığımı
+  // görmüyorum". Android 15+ kenardan kenara düzende pencere KÜÇÜLMÜYOR
+  // (adjustResize devre dışı), o yüzden boşluğu sayfanın kendisi bırakır.
+  const [keyboard, setKeyboard] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (e) => setKeyboard(e.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboard(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const slide = useSharedValue(height);
   const slideStyle = useAnimatedStyle(() => ({ transform: [{ translateY: slide.value }] }));
   useEffect(() => {
@@ -75,7 +88,13 @@ export function Sheet({
         <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel="close" />
         <Animated.View
           className="bg-surface border-border rounded-t-3xl border-t"
-          style={[{ paddingBottom: insets.bottom + 12, maxHeight: Math.round(height * 0.88) }, slideStyle]}
+          style={[
+            {
+              paddingBottom: (keyboard > 0 ? 12 : insets.bottom + 12) + keyboard,
+              maxHeight: Math.round((height - keyboard) * 0.88) + keyboard,
+            },
+            slideStyle,
+          ]}
         >
           <View className="items-center pb-1 pt-2.5">
             <View className="h-1 w-10 rounded-full" style={{ backgroundColor: c.surface3 }} />

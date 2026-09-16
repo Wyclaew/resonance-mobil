@@ -16,6 +16,44 @@ import { notifyLocalChange } from "./sync/engine";
 //  • Bu yüzden HER OKUMA `deleted = 0` filtrelemek ZORUNDA.
 //  • Yazımdan sonra `notifyLocalChange()` → senkron debounce'lu tetiklenir.
 
+/**
+ * Liste başına en fazla 4 kapak (mozaik için). Tek sorguda: listedeki ilk
+ * sıradaki kapaklı parçalar.
+ *
+ * NEDEN AYRI: `listPlaylists` her açılışta çağrılıyor ve kapak gerekmiyor;
+ * mozaik yalnız Kütüphane kartlarında lazım.
+ */
+export async function playlistCovers(): Promise<Record<string, string[]>> {
+  const db = await getDb();
+  const rows = await db.select<{ playlist_id: string; thumbnail: string }[]>(
+    `SELECT pt.playlist_id, t.thumbnail
+       FROM playlist_tracks pt
+       JOIN tracks t ON t.id = pt.track_id
+      WHERE pt.deleted = 0 AND t.thumbnail IS NOT NULL AND t.thumbnail <> ''
+      ORDER BY pt.playlist_id, pt.position`
+  );
+  const out: Record<string, string[]> = {};
+  const seen: Record<string, Set<string>> = {};
+  for (const r of rows) {
+    const list = (out[r.playlist_id] ??= []);
+    const set = (seen[r.playlist_id] ??= new Set());
+    if (list.length >= 4 || set.has(r.thumbnail)) continue;
+    set.add(r.thumbnail);
+    list.push(r.thumbnail);
+  }
+  return out;
+}
+
+/** Listeyi bir klasöre taşır (boş ad → kök). Klasör ayrı tablo DEĞİL, etiket. */
+export async function setPlaylistFolder(id: string, folder: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE playlists SET folder = $1, updated_at = $2 WHERE id = $3`,
+    [folder.trim() || null, Date.now(), id]
+  );
+  notifyLocalChange();
+}
+
 export async function listPlaylists(): Promise<Playlist[]> {
   const db = await getDb();
   const rows = await db.select<
@@ -26,11 +64,13 @@ export async function listPlaylists(): Promise<Playlist[]> {
       source: string;
       sourceUrl: string | null;
       createdAt: number;
+      folder: string | null;
       trackCount: number;
     }[]
   >(
     `SELECT p.id, p.name, p.description, p.source, p.source_url AS sourceUrl,
-            p.created_at AS createdAt, COUNT(pt.track_id) AS trackCount
+            p.created_at AS createdAt, p.folder AS folder,
+            COUNT(pt.track_id) AS trackCount
      FROM playlists p
      LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id AND pt.deleted = 0
      WHERE p.deleted = 0
@@ -42,6 +82,7 @@ export async function listPlaylists(): Promise<Playlist[]> {
     name: r.name,
     description: r.description ?? undefined,
     source: (r.source as Playlist["source"]) ?? "local",
+    folder: r.folder ?? undefined,
     sourceUrl: r.sourceUrl ?? undefined,
     createdAt: r.createdAt,
     trackCount: r.trackCount,
@@ -391,8 +432,11 @@ export async function voteTrack(
 
   const d = new Date();
   await db.execute(
-    `INSERT INTO votes (track_id, playlist_id, value, created_at, hour, dow, uid, device_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    // ⛔ BUG'DI (v1.9.3): `updated_at` verilmiyordu → varsayılan 0 → push
+    // `updated_at > damga` ile seçtiği için oy BULUTA HİÇ ÇIKMIYORDU.
+    // Kullanıcının "Mac'te verdiğim oy Windows'ta yok" şikâyetinin asıl kökü.
+    `INSERT INTO votes (track_id, playlist_id, value, created_at, hour, dow, uid, device_id, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       trackId,
       playlistId,
@@ -402,6 +446,7 @@ export async function voteTrack(
       d.getDay(),
       newUid(),
       getDeviceId(),
+      now,
     ]
   );
   // Son oy yönünü ipucu olarak sakla.

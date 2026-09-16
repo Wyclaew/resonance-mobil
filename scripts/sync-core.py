@@ -19,6 +19,7 @@ FILES = [
     "lib/taste.ts", "lib/acceptance.ts", "lib/smartLists.ts",
     "lib/prefs.ts", "lib/blocked.ts", "lib/graph.ts", "lib/tags.ts",
     "lib/nowPlaying.ts", "lib/deviceQueue.ts", "lib/recommender.ts",
+    "lib/discoverWeek.ts",
     "lib/i18n.ts",
     "lib/sync/engine.ts", "lib/sync/client.ts",
     "lib/settings.ts", "lib/playlists.ts", "lib/history.ts", "lib/format.ts",
