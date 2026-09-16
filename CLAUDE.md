@@ -8,7 +8,7 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum (v1.0.2):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
+**Durum (v1.0.3):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
 ayarlar, veri/yedek, istatistik/zevk/özet, açık tema + vurgu rengi, TR/EN). Sürüm APK'sı
 R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı aşağıda ayrı yazılı.
 
@@ -18,10 +18,14 @@ R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı
 - `mobile/src/` içindeki **kopyalanan dosyaları DÜZENLEME** (başlarında uyarı var).
   Masaüstünde düzelt → `python3 scripts/sync-core.py`. Sapma kontrolü: `--check`.
 - `mobile/.env` git'e girmez (Supabase anahtarları). Şema `mobile/.env.example`.
-- YouTube ToS: kişisel kullanım, repo **private** kalmalı.
+- ⚠️ **Depo 2026-09-16'dan beri HERKESE AÇIK** (kullanıcı kararı: üniversite grubuyla
+  paylaşacak). Sonuçları: YouTube ToS riski artar (kişisel kullanım savunması zayıflar),
+  APK'daki Supabase projesi ortaktır (RLS veriyi ayırır, kota ayırmaz → "kendi projen"
+  ekranı bu yüzden var) ve imza anahtarı hâlâ Expo'nun hata ayıklama anahtarı (aşağıda).
 - Commit'lerde Claude ortak yazar satırı YOK (kullanıcı isteği).
-- ⚠️ **Emülatördeki veri GERÇEK kütüphane** (senkronlu). Test oyu/çalması masaüstüne
-  gider; `play_history`'nin tombstone'u yok, silinemez. Test ederken bunu bil.
+- ⚠️ **Emülatörde senkron oturumu KAPALI** (2026-09-09'dan beri): oradaki kütüphane
+  gerçeğin eski kopyası, testler buluta gitmiyor. Oturum açılırsa eski kural geri gelir:
+  test oyu/çalması masaüstüne gider, `play_history`'nin tombstone'u yok, silinemez.
 
 ## Ses yolu (projenin en riskli kararı — ÖLÇÜLDÜ)
 **NewPipeExtractor (native Kotlin)** — `mobile/modules/resonance-extractor/`.
@@ -233,13 +237,40 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
   aşılamaz. Aynı şarkının resmi/söz videosu çalınıyor → alternatif. Doğrulanmış sürüm yoksa
   indirme `NoPlayableVersionError` → "Sürüm seç" (`VersionSheet`, elle; seçilen önce denenir).
   Geçici hatada (403/5xx/bot) indirme 1 dk ve 5 dk sonra kendiliğinden yeniden dener.
-- ⚠️ **Emülatör verisi senkronsuz** (2026-09-09'dan beri oturum yok: AsyncStorage'da
-  `ls:sb-…-auth-token` yok, `sync_state` 09-09'da duruyor). Önceki turlarda "emülatördeki
-  yeniden bağlama masaüstüne gider" denmişti — YANLIŞTI, gitmedi. Test ederken bunu kontrol et.
+- ⚠️ **Emülatörde SENKRON OTURUMU YOK** (2026-09-09'dan beri; 2026-09-16'da yine
+  "Giriş yapılmadı"). Yani emülatördeki kütüphane GERÇEK kütüphanenin eski bir kopyası,
+  testler buluta gitmiyor — ama senkron düzeltmeleri de emülatörde DOĞRULANAMIYOR
+  (sayılar, oy akışı). Doğrulama gerekiyorsa kullanıcıdan emülatörde giriş yapmasını iste.
 - ⚠️ **Emülatör `-no-snapshot-save` ile açılıp kapanırsa eski `default_boot` görüntüsüne döner**
   (o anki APK 1.0.1'di, DB de eski): "Metro'ya hiç istek yok, yeni düğme yok" görülürse önce
   `dumpsys package com.resonance.mobile | grep versionName`. Uzun süredir açık eski Metro
   dosya değişikliğini kaçırabilir → `expo start --clear` ile yeniden başlat.
+- ⛔ **Çekirdek tazelemesi ŞEMAYI DA İSTER**: masaüstü 1.9.6'daki `playlists.folder`
+  (migration v9) mobil şemada yoktu → `playlists.ts` `p.folder` seçiyor, TÜM listeler
+  "no such column" ile yüklenmiyordu. `sync-core.py`'den sonra `gen-migrations.py` de koş,
+  sonra uygulamayı AÇ ve logu oku (tip denetimi bunu yakalamaz).
+- ⛔ **`updated_at` yazmayan yol buluta ÇIKMAZ**: `repairTracks` onarılan yer tutucunun
+  adını damgasız yazıyordu (yer tutucu 0 ile açılır, push `updated_at > last_pushed`
+  seçer) → adlar bu cihazda kalıyordu. Sunucudaki `keep_newer_row` tetikleyicisi de
+  damgayı artırmayan yazmayı sessizce reddediyor. Mobil'e özgü her yazma yolunu buna
+  göre gözden geçir (`cache` senkronlanmaz, `settings`/`relink`/`ensureTrack` damga yazar).
+- ⚠️ **Klavye alt sayfayı kapatıyordu** ("yeni liste adını yazarken kutuyu göremiyorum"):
+  Android 15+ kenardan kenara düzende pencere `adjustResize` ile KÜÇÜLMÜYOR. `Sheet`
+  artık `Keyboard` olaylarını dinleyip alt boşluğu ve yüksekliği kendisi ayarlıyor.
+  ⚠️ Emülatörde `hw.keyboard=yes` iken ekran klavyesi HİÇ çizilmez (ölçüm yapamazsın):
+  `~/.android/avd/Pixel_7.avd/config.ini` → `hw.keyboard=no` (bu oturumda kapatıldı).
+- ℹ️ **Uygulama içi güncelleme** (`lib/updater.ts` + `components/UpdateSheet.tsx`):
+  kaynak GitHub Releases (`Wyclaew/resonance-mobil`), etiket `vX.Y.Z` + `.apk` eki.
+  Açılıştan 9 sn sonra bir kez bakar, "bu sürümü atla" `mobile.updateSkip` ayarında.
+  Kurulum: `REQUEST_INSTALL_PACKAGES` + FileProvider içerik adresi → paket yükleyici;
+  olmazsa yayın sayfası tarayıcıda. Uçtan uca doğrulandı (1.0.0 → 1.0.3 kurulumu).
+  ⚠️ APK Expo'nun HATA AYIKLAMA anahtarıyla imzalı: depo herkese açık olduğu için bu
+  anahtar herkeste var → aynı imzayla APK üreten biri "güncelleme" diye kurdurabilir.
+  Kendi anahtarına geçmek kurulu uygulamaların üzerine yazmayı bozar (önce kaldırmak
+  gerekir) — kullanıcıya sorulacak bir karar.
+- ⚠️ **Play Protect** sideload'da "App scan recommended" diyor (her kurulum/güncellemede);
+  kullanıcı kapatabiliyor, kurulumu engellemiyor.
+- ℹ️ **Ayarlardaki uzun açıklamalar ⓘ arkasında** (`Section info=` / `InfoNote`).
 - ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
 
 ## Özellikler
@@ -251,7 +282,10 @@ ana sayfa/Keşfet/oynatıcı/ayar ekranları ★ · kapat-aç sonrası Keşfet s
 medya bildirimine dokununca oynatıcı ★ · rapor düğmesi posta uygulamasını açıyor ★ (dolu
 taslak emülatörde görülemedi: Gmail'de hesap yok) · silinmiş videonun indirmesi alternatif
 yüklemeyle ★ · geri yükleme logu ★ · mini oynatıcıda kaydırma (geliştirme sürümü) ·
-v1.0.2 geliştirme sürümünde: yanlış bağlantı denetimi ("Outro" → resmi video, oturum isteyen
+v1.0.3'te ★: uygulama içi güncelleme (GitHub yayınından indirme + kurulum, sürüm 1.0.3
+kuruldu) · ayarlarda ⓘ açıklamaları · klavye açıkken "yeni liste" kutusu görünür ·
+senkron sağlığı paneli ve "kendi Supabase projen" kartı çiziliyor (senkron SAYILARI
+doğrulanmadı: emülatörde oturum yok) · v1.0.2 geliştirme sürümünde: yanlış bağlantı denetimi ("Outro" → resmi video, oturum isteyen
 aday atlandı) · oturum isteyen kaydın indirmesi doğrulanmış sürümle (3,7 MB) · "Sürüm seç"
 listesi, başarısız adayda neden ("oturum istiyor"), başarılı seçimde yeniden bağlama ·
 Keşfet'i kenara koyma → Keşfet sekmesi/ana sayfa kartı → kapat-aç sonrası duruyor → "Keşfe

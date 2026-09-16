@@ -48,6 +48,18 @@ export function isNewer(candidate: string, current: string): boolean {
   return false;
 }
 
+/** Yayın notları Markdown gelir; sayfada düz metin gösterilir (**kalın**, #, - temizlenir). */
+function plainNotes(body: string): string {
+  return body
+    .replace(/\r/g, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .trim()
+    .slice(0, 700);
+}
+
 async function fetchLatest(): Promise<UpdateInfo | null> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), CHECK_TIMEOUT_MS);
@@ -72,7 +84,7 @@ async function fetchLatest(): Promise<UpdateInfo | null> {
     if (!version || !apk?.browser_download_url) return null;
     return {
       version,
-      notes: (j.body ?? "").trim().slice(0, 600),
+      notes: plainNotes(j.body ?? ""),
       url: apk.browser_download_url,
       bytes: apk.size ?? 0,
       page: j.html_url ?? `https://github.com/${REPO}/releases/latest`,
