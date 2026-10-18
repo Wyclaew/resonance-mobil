@@ -1,0 +1,14 @@
+diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
+index b495b5a..6875ef7 100644
+--- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
++++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
+@@ -206,7 +206,8 @@ class MusicService : HeadlessJsMediaService() {
+             handleAudioFocus = playerOptions?.getBoolean(AUTO_HANDLE_INTERRUPTIONS) ?: true,
+             interceptPlayerActionsTriggeredExternally = true,
+             skipSilence = playerOptions?.getBoolean(SKIP_SILENCE) ?: false,
+-            wakeMode = playerOptions?.getInt(WAKE_MODE, 0) ?: 0
++            // RN köprüsü sayıları Double paketliyor; getInt her zaman 0 (uyanık kilidi YOK) dönüyordu.
++            wakeMode = playerOptions?.getDouble(WAKE_MODE, 0.0)?.toInt() ?: 0
+         )
+         player = QueuedAudioPlayer(this@MusicService, options)
+         fakePlayer.release()

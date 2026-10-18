@@ -12,6 +12,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import "../global.css";
 import { installAutoAdvance } from "../src/audio/autoAdvance";
+import { installKeepAlive } from "../src/audio/keepAlive";
 import { setupAudio } from "../src/audio/player";
 import { installPresence } from "../src/audio/presence";
 import { AddToPlaylistSheet } from "../src/components/AddToPlaylistSheet";
@@ -20,7 +21,7 @@ import { MiniPlayer } from "../src/components/MiniPlayer";
 import { Toasts } from "../src/components/Toasts";
 import { PortalHost } from "../src/components/Portal";
 import { TrackSheet } from "../src/components/TrackSheet";
-import { UpdateSheet } from "../src/components/UpdateSheet";
+import { UpdateDialog } from "../src/components/UpdateDialog";
 import { VersionSheet } from "../src/components/VersionSheet";
 import { Button } from "../src/components/ui";
 import { sendReport } from "../src/lib/bugReport";
@@ -88,6 +89,7 @@ export default function RootLayout() {
         await setupAudio();
         installPlaybackState();
         installAutoAdvance();
+        installKeepAlive();
         installPresence();
         setReady(true);
         runStartupTasks();
@@ -149,7 +151,7 @@ export default function RootLayout() {
         <AddToPlaylistSheet />
         <TrackSheet />
         <VersionSheet />
-        <UpdateSheet />
+        <UpdateDialog />
         {/* Alt sayfalar burada, ekranların ve mini oynatıcının üstünde çizilir (Modal değil — Portal.tsx). */}
         <PortalHost />
         <Toasts />

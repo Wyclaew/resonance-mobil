@@ -286,6 +286,13 @@ CREATE TABLE IF NOT EXISTS artist_prefs (
 ALTER TABLE playlists ADD COLUMN folder TEXT;
 `,
   },
+  {
+    version: 10,
+    description: "play_history_context",
+    sql: `
+ALTER TABLE play_history ADD COLUMN context TEXT;
+`,
+  },
 ];
 
-export const LATEST_VERSION = 9;
+export const LATEST_VERSION = 10;

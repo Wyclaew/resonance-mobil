@@ -6,7 +6,7 @@ Kullanım:  python3 scripts/gen-migrations.py [/yol/Resonance]
 """
 import re, sys, pathlib
 
-desktop = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path.home() / "Desktop/Resonance")
+desktop = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path.home() / "Desktop/ben/Resonance")
 src = (desktop / "src-tauri/src/lib.rs").read_text()
 start = src.index("vec![Migration {")
 end = src.index("\n    ]", start)

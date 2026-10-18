@@ -31,6 +31,8 @@ interface Native {
   radio(videoId: string, limit: number): Promise<Track[]>;
   search(query: string, limit: number, musicOnly: boolean): Promise<Track[]>;
   playlist(playlistUrl: string, limit: number): Promise<{ name: string; tracks: Track[] }>;
+  searchPlaylists(query: string, limit: number): Promise<{ url: string; name: string }[]>;
+  isIgnoringBatteryOptimizations(): boolean;
   scanLocal(limit: number): Promise<Track[]>;
   loudness(videoId: string): Promise<{ lufs: number; targetLufs: number }>;
 }
@@ -55,6 +57,18 @@ export const search = (query: string, limit = 20, musicOnly = true) =>
   native.search(query, limit, musicOnly);
 
 export const playlist = (playlistUrl: string, limit = 500) => native.playlist(playlistUrl, limit);
+
+/** Pil kısıtlamasından muaf mı? (arka planda kesintisiz çalma için) */
+export const isIgnoringBatteryOptimizations = (): boolean => {
+  try {
+    return native.isIgnoringBatteryOptimizations();
+  } catch {
+    return true; // eski derleme: bilinmiyor → rahatsız etme
+  }
+};
+
+/** YT Music çalma listesi araması (tür havuzu için küratörlü listeler). */
+export const searchPlaylists = (query: string, limit = 8) => native.searchPlaylists(query, limit);
 
 /**
  * Telefondaki müzik dosyaları. `source = "local"`, `sourceId` = content:// adresi

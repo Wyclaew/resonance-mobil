@@ -3,6 +3,7 @@ import TrackPlayer, { Event, State } from "react-native-track-player";
 import { t } from "../lib/i18n.mobile";
 import { onAdvancedTo, recordEndedPlay, suppressMoodSignal, usePlayerStore } from "../store/usePlayerStore";
 import { useToastStore } from "../store/useToastStore";
+import { setWantPlaying } from "./keepAlive";
 import * as engine from "./player";
 import { useSleepTimer } from "./sleepTimer";
 
@@ -24,6 +25,8 @@ const MAX_RESUMES = 3;
 
 let installed = false;
 const resumes = new Map<string, number>();
+/** Hata sonrası taze adresle yeniden bağlanma zamanı (parça başına). */
+const lastReload = new Map<string, number>();
 
 function earlyEnd(uid: string, position: number, duration: number): boolean {
   if (!(duration > 0) || position >= duration - END_TOLERANCE) return false;
@@ -101,6 +104,7 @@ export function installAutoAdvance(): void {
       if (sleep.afterTrack) {
         // Masaüstüyle aynı: dinlemeyi yaz, dur, parçayı başa sar — ilerleme.
         sleep.setAfterTrack(false);
+        setWantPlaying(false);
         recordEndedPlay(Math.round(position * 1000), Math.round(expected * 1000));
         await TrackPlayer.pause();
         await TrackPlayer.seekTo(0);
@@ -120,12 +124,21 @@ export function installAutoAdvance(): void {
       if (!current) return;
       const { state } = await TrackPlayer.getPlaybackState();
       if (state !== State.Error) return;
-      const { position } = await TrackPlayer.getProgress();
+      const { position } = await TrackPlayer.getProgress().catch(() => ({ position: 0 }));
       // Adresin süresi dolmuş olabilir (uzun duraklatma, 403): önce taze adresle
-      // aynı yerden bir kez dene; olmazsa masaüstü gibi atla.
-      if (current.source !== "local" && (resumes.get(`err:${current.uid}`) ?? 0) === 0) {
-        resumes.set(`err:${current.uid}`, 1);
-        if (await engine.reloadCurrent(current, Math.round(position * 1000))) return;
+      // aynı yerden bir kez dene (parça başına dakikada bir); olmazsa atla.
+      const key = `err:${current.uid}`;
+      if (current.source !== "local" && Date.now() - (lastReload.get(key) ?? 0) > 60_000) {
+        lastReload.set(key, Date.now());
+        try {
+          if (await engine.reloadCurrent(current, Math.round(position * 1000))) return;
+        } catch (re) {
+          // ⛔ BUG'DI: yeniden yükleme de hata verince (ağ hâlâ yok) aşağıdaki
+          // `catch`a düşüp çalma KALICI duruyordu. Artık sıradakine geçilir;
+          // `startAt` ağ sorununda hazır (indirilmiş/önbellekteki) parçaya geçer
+          // ya da bağlantıyı bekler.
+          console.warn("[audio] taze adresle yeniden bağlanılamadı:", re);
+        }
       }
       useToastStore.getState().show(t("player.trackFailed"), "error");
       suppressMoodSignal();

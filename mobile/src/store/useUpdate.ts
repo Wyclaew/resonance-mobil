@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { downloadUpdate, installUpdate, skipVersion, type UpdateInfo } from "../lib/updater";
+import { downloadUpdate, installUpdate, type UpdateInfo } from "../lib/updater";
 
 type Phase = "ask" | "downloading" | "ready" | "failed";
 
@@ -12,11 +12,10 @@ interface UpdateState {
   error: string | null;
   prompt: (info: UpdateInfo) => void;
   close: () => void;
-  skip: () => void;
   start: () => Promise<void>;
 }
 
-/** "Yeni sürüm var" akışı — sayfa `components/UpdateSheet.tsx`. */
+/** "Yeni sürüm var" akışı — pencere `components/UpdateDialog.tsx`. "Devam et" yalnız bu açılış için. */
 export const useUpdate = create<UpdateState>((set, get) => ({
   info: null,
   phase: "ask",
@@ -25,11 +24,6 @@ export const useUpdate = create<UpdateState>((set, get) => ({
 
   prompt: (info) => set({ info, phase: "ask", progress: 0, error: null }),
   close: () => set({ info: null, phase: "ask", progress: 0, error: null }),
-  skip: () => {
-    const info = get().info;
-    if (info) void skipVersion(info.version);
-    set({ info: null, phase: "ask", progress: 0, error: null });
-  },
 
   start: async () => {
     const info = get().info;

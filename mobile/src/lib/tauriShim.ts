@@ -25,8 +25,33 @@ async function searchYoutube(args: Args): Promise<Track[]> {
  * NewPipe'ın "music_songs" sekmesi süre + sanatçıyı DOLU verir (yt-dlp'nin
  * flat-playlist çıktısı vermiyordu, CLAUDE.md).
  */
+let poolTurn = 0;
 async function musicGenrePool(args: Args): Promise<Track[]> {
-  return Extractor.search(String(args.query), Number(args.limit ?? 60), true);
+  const query = String(args.query);
+  const limit = Math.min(100, Math.max(10, Number(args.limit ?? 60)));
+  // Masaüstü v1.9.7 ile aynı: aramanın getirdiği en fazla 8 KÜRATÖRLÜ listeden
+  // ilki (en alakalı) + her çağrıda DÖNEN bir tane. ⛔ Eskiden mobilde yalnız
+  // şarkı aramasıydı → aynı filtre hep aynı ~60 şarkıyı veriyordu; 45 günlük
+  // tekrar engeli bunları tüketince Keşfet filtrenin DIŞINA taşıyordu.
+  try {
+    const lists = await Extractor.searchPlaylists(query, 8);
+    if (lists.length) {
+      const picked = [lists[0]];
+      if (lists.length > 1) picked.push(lists[1 + (poolTurn++ % (lists.length - 1))]);
+      const out: Track[] = [];
+      for (const l of picked) {
+        try {
+          out.push(...(await Extractor.playlist(l.url, limit)).tracks);
+        } catch (e) {
+          console.warn("[tür havuzu] liste çekilemedi:", l.name, e);
+        }
+      }
+      if (out.length) return out;
+    }
+  } catch (e) {
+    console.warn("[tür havuzu] liste araması başarısız, şarkı aramasına düşülüyor:", e);
+  }
+  return Extractor.search(query, limit, true);
 }
 
 /**

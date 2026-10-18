@@ -1,3 +1,4 @@
+import { setWantPlaying } from "./keepAlive";
 import TrackPlayer from "react-native-track-player";
 import { create } from "zustand";
 
@@ -52,6 +53,7 @@ export const useSleepTimer = create<SleepState>((set) => ({
     timer = setTimeout(() => {
       clearTimers();
       set({ endsAt: null });
+      setWantPlaying(false);
       void TrackPlayer.pause()
         .catch((e) => console.error("[uyku] duraklatılamadı:", e))
         .finally(restoreVolume);

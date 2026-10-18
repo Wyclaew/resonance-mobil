@@ -21,7 +21,7 @@ FILES = [
     "lib/nowPlaying.ts", "lib/deviceQueue.ts", "lib/recommender.ts",
     "lib/discoverWeek.ts",
     "lib/i18n.ts",
-    "lib/sync/engine.ts", "lib/sync/client.ts",
+    "lib/sync/engine.ts", "lib/sync/client.ts", "lib/sync/resilientFetch.ts",
     "lib/settings.ts", "lib/playlists.ts", "lib/history.ts", "lib/format.ts",
     "lib/vote.ts", "lib/lyrics.ts", "lib/smartLists.ts", "lib/loudness.ts",
     "lib/backup.ts",
@@ -36,14 +36,17 @@ BANNER = (
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     check = "--check" in sys.argv
-    desktop = pathlib.Path(args[0] if args else pathlib.Path.home() / "Desktop/Resonance") / "src"
+    desktop = pathlib.Path(args[0] if args else pathlib.Path.home() / "Desktop/ben/Resonance") / "src"
     target = pathlib.Path(__file__).resolve().parent.parent / "mobile/src"
 
-    drift, copied = [], 0
+    # ⛔ Kaynak yoksa "aynı ✅" DEME (2026-10: depo taşınınca hiçbir dosya
+    # karşılaştırılmadan "aynı" yazıyordu).
+    drift, missing, copied = [], [], 0
     for rel in FILES:
         src = desktop / rel
         if not src.exists():
             print(f"⚠️  kaynak yok: {src}")
+            missing.append(rel)
             continue
         body = BANNER.format(rel=rel) + src.read_text()
         dst = target / rel
@@ -56,6 +59,9 @@ def main() -> int:
             dst.write_text(body)
             copied += 1
 
+    if missing:
+        print(f"⛔ {len(missing)} kaynak dosya bulunamadı — masaüstü yolu doğru mu? ({desktop})")
+        return 1
     if check:
         if drift:
             print("SAPMA VAR:\n  " + "\n  ".join(drift))

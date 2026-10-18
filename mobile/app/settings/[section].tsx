@@ -2,7 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, AppState, Pressable, ScrollView, Text, View } from "react-native";
 
 import { Icon } from "../../src/components/Icon";
 import { useBottomSpace } from "../../src/components/MiniPlayer";
@@ -17,11 +17,12 @@ import { ago, bytes, date } from "../../src/lib/fmt";
 import { hapticSuccess } from "../../src/lib/haptics";
 import type { Lang } from "../../src/lib/i18n";
 import { useLang, useT, type Key } from "../../src/lib/i18n.mobile";
-import { setAmbientSeconds, setDataSaver, setWifiOnly, useMobileSettings } from "../../src/lib/mobileSettings";
+import { setAmbientSeconds, setDataSaver, setPlaylistRadio, setWifiOnly, useMobileSettings } from "../../src/lib/mobileSettings";
 import { useDownloadStore } from "../../src/store/useDownloadStore";
 import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { usePlaylistStore } from "../../src/store/usePlaylistStore";
 import { useSettingsStore, type Theme } from "../../src/store/useSettingsStore";
+import { batteryRestricted, requestBatteryExemption } from "../../src/lib/battery";
 import { checkForUpdate } from "../../src/lib/updater";
 import { useToastStore } from "../../src/store/useToastStore";
 import { useUpdate } from "../../src/store/useUpdate";
@@ -93,6 +94,32 @@ function secs(n: number, lang: Lang): string {
   return lang === "tr" ? `${n} sn` : `${n} s`;
 }
 
+/**
+ * Arka planda kesintisiz çalma: pil kısıtlaması muafiyeti (Xiaomi gibi sistemler
+ * muaf olmayan uygulamanın çalmasını arka planda kesebiliyor). Sistem
+ * diyaloğundan dönünce durum yeniden okunur.
+ */
+function BackgroundPlayRow() {
+  const t = useT();
+  const c = useColors();
+  const [restricted, setRestricted] = useState(() => batteryRestricted());
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") setRestricted(batteryRestricted());
+    });
+    return () => sub.remove();
+  }, []);
+  return (
+    <Row
+      icon={restricted ? "warning" : "checkCircle"}
+      title={t("m.settings.bgPlay")}
+      sub={restricted ? t("m.settings.bgPlayOff") : t("m.settings.bgPlayOn")}
+      onPress={restricted ? () => void requestBatteryExemption() : undefined}
+      right={restricted ? <Text className="text-accent text-[13px]" style={{ fontFamily: "Inter_600SemiBold", color: c.accent }}>{t("m.settings.bgPlayFix")}</Text> : undefined}
+    />
+  );
+}
+
 function Playback() {
   const t = useT();
   const lang = useLang();
@@ -101,6 +128,7 @@ function Playback() {
   return (
     <>
       <Section title={t("m.settings.playback")} className="mt-2">
+        <BackgroundPlayRow />
         <Row title={t("settings.normalize")} sub={t("m.settings.normalizeSub")} right={<Toggle value={s.normalizeVolume} onChange={(v) => void s.update("normalizeVolume", v)} />} />
         <Row title={t("settings.prefetch")} sub={t("m.settings.prefetchSub")} right={<Toggle value={s.prefetchEnabled} onChange={(v) => void s.update("prefetchEnabled", v)} />} />
         <Choice
@@ -149,6 +177,7 @@ function Playback() {
 function Recs() {
   const t = useT();
   const s = useSettingsStore();
+  const mobile = useMobileSettings();
   const [blocked, setBlocked] = useState<string[]>([]);
   const reload = useCallback(async () => {
     await loadBlockedArtists(true);
@@ -168,6 +197,11 @@ function Recs() {
           value={s.recEveryN}
           onChange={(v) => void s.update("recEveryN", v)}
           options={[2, 3, 5, 8].map((n) => ({ value: n, label: `1/${n}` }))}
+        />
+        <Row
+          title={t("m.settings.playlistRadio")}
+          sub={t("m.settings.playlistRadioSub")}
+          right={<Toggle value={mobile.playlistRadio} onChange={(v) => void setPlaylistRadio(v)} />}
         />
       </Section>
       <Section title={t("settings.recSourcesHeader")}>

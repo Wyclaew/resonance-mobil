@@ -153,6 +153,30 @@ class ResonanceExtractorModule : Module() {
                 .take(limit.coerceIn(1, 50))
         }
 
+        /**
+         * YT Music'te ÇALMA LİSTESİ araması (küratörlü tür listeleri). Masaüstündeki
+         * `music_genre_pool`'un ilk adımı: aramanın getirdiği listelerin adresleri.
+         */
+        AsyncFunction("searchPlaylists") { query: String, limit: Int ->
+            ensureInit()
+            val extractor = ServiceList.YouTube.getSearchExtractor(query, listOf("music_playlists"), "")
+            extractor.fetchPage()
+            extractor.initialPage.items
+                .filterIsInstance<org.schabi.newpipe.extractor.playlist.PlaylistInfoItem>()
+                .take(limit.coerceIn(1, 20))
+                .map { mapOf("url" to it.url, "name" to (it.name ?: "")) }
+        }
+
+        /**
+         * Pil kısıtlamasından muaf mı? Xiaomi/MIUI gibi sistemler muaf olmayan
+         * uygulamanın arka plan servisini öldürüp çalmayı durdurabiliyor.
+         */
+        Function("isIgnoringBatteryOptimizations") {
+            val ctx = appContext.reactContext ?: return@Function true
+            val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            pm.isIgnoringBatteryOptimizations(ctx.packageName)
+        }
+
         /** YouTube'un parça başına ses yüksekliği ölçümü (LUFS). */
         AsyncFunction("loudness") { videoId: String ->
             Loudness.measure(videoId)

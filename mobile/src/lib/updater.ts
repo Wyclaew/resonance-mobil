@@ -4,8 +4,6 @@ import { getContentUriAsync } from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 import { Linking } from "react-native";
 
-import { loadSettings, setSetting } from "./settings";
-
 /**
  * ⭐ UYGULAMA İÇİ GÜNCELLEME (masaüstündeki güncelleme denetiminin mobil karşılığı).
  * Kullanıcı isteği (2026-09-16): "PC'deki gibi açınca 'yeni sürüm var, indirilsin mi?'
@@ -19,7 +17,6 @@ import { loadSettings, setSetting } from "./settings";
  */
 const REPO = "Wyclaew/resonance-mobil";
 const LATEST = `https://api.github.com/repos/${REPO}/releases/latest`;
-const SKIP_KEY = "mobile.updateSkip";
 const CHECK_TIMEOUT_MS = 8000;
 
 export interface UpdateInfo {
@@ -97,22 +94,13 @@ async function fetchLatest(): Promise<UpdateInfo | null> {
 }
 
 /**
- * Yeni sürüm var mı? `manual` değilse kullanıcının "atla" dediği sürüm sessiz geçilir.
+ * Yeni sürüm var mı? ⭐ Kullanıcı isteği (2026-10): eski sürümdeyken HER AÇILIŞTA
+ * sorulsun ("gören kesin güncellesin") — eski "bu sürümü atla" seçeneği kaldırıldı.
  */
-export async function checkForUpdate(opts: { manual?: boolean } = {}): Promise<UpdateInfo | null> {
+export async function checkForUpdate(_opts: { manual?: boolean } = {}): Promise<UpdateInfo | null> {
   const info = await fetchLatest();
   if (!info || !isNewer(info.version, currentVersion())) return null;
-  if (!opts.manual) {
-    const all: Record<string, string> = await loadSettings().catch(() => ({}));
-    const skipped = all[SKIP_KEY];
-    if (skipped === info.version) return null;
-  }
   return info;
-}
-
-/** "Bu sürümü atla" — bir daha kendiliğinden sorulmaz (elle denetim yine gösterir). */
-export async function skipVersion(version: string): Promise<void> {
-  await setSetting(SKIP_KEY, version).catch(() => {});
 }
 
 function apkFile(version: string): File {

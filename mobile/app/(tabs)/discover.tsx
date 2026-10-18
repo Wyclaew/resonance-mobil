@@ -7,7 +7,7 @@ import { BarMark } from "../../src/components/BarMark";
 import { Icon } from "../../src/components/Icon";
 import { useBottomSpace } from "../../src/components/MiniPlayer";
 import { TrackRow } from "../../src/components/TrackRow";
-import { Artwork, Button, Card, Chip, EmptyState, Eyebrow } from "../../src/components/ui";
+import { Artwork, Button, Card, Chip, EmptyState, Eyebrow, Segmented } from "../../src/components/ui";
 import { blockArtist } from "../../src/lib/blocked";
 import type { DiscoverySession } from "../../src/lib/discoverySession";
 import { ago, date } from "../../src/lib/fmt";
@@ -20,6 +20,7 @@ import { labelsForArtists, loadTags } from "../../src/lib/tags";
 import { usePlayback } from "../../src/store/usePlayback";
 import { DISCOVERY_ID, usePlayerStore } from "../../src/store/usePlayerStore";
 import { usePlaylistStore } from "../../src/store/usePlaylistStore";
+import { useSettingsStore } from "../../src/store/useSettingsStore";
 import { useToastStore } from "../../src/store/useToastStore";
 import { savePlaylistFromTracks } from "../../src/lib/playlists";
 import { useColors } from "../../src/theme";
@@ -49,6 +50,8 @@ export default function Discover() {
   const [draft, setDraft] = useState<string[]>(activeFilters);
   const [filtersOpen, setFiltersOpen] = useState(!active && !saved);
   const [saving, setSaving] = useState(false);
+  const filterMix = useSettingsStore((st) => st.discoverFilterMix);
+  const mixStep = Math.round(Math.min(1, Math.max(0, filterMix ?? 0)) * 2);
 
   useEffect(() => {
     void loadTags();
@@ -142,6 +145,17 @@ export default function Discover() {
             <View className="px-4 pb-4">
               <FilterGroup title={t("discover.moodGroup")} items={moods} selected={draft} onToggle={toggle} />
               <FilterGroup title={t("discover.genreGroup")} items={genres} selected={draft} onToggle={toggle} />
+              {draft.length ? (
+                // ⭐ KARIŞIM ORANI (masaüstü v1.9.8): filtreli Keşfet varsayılan olarak
+                // zevk profilinden AYRI; isteyen "bu türde benim sevdiklerimi de kat" diyebilir.
+                <View className="mt-4">
+                  <Segmented
+                    value={mixStep}
+                    onChange={(v) => void useSettingsStore.getState().update("discoverFilterMix", v / 2)}
+                    options={[0, 1, 2].map((n) => ({ value: n, label: t(`discover.mix${n}` as "discover.mix0") }))}
+                  />
+                </View>
+              ) : null}
               <Text className="text-faint mt-3 text-[12px] leading-[17px]">
                 {draft.length ? t("discover.filterHint", { count: draft.length }) : t("discover.noFilterHint")}
               </Text>

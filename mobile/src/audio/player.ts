@@ -93,15 +93,31 @@ export async function applyLoudness(item: Track & { uid?: string }): Promise<voi
 export async function setupAudio(): Promise<void> {
   if (ready) return;
   try {
-    await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+    await TrackPlayer.setupPlayer({
+      autoHandleInterruptions: true,
+      // ⛔ BUG'DI (kullanıcı: "müzik bazen kendi kendine duruyor"): uyanık kilidi
+      // YOKTU (track-player varsayılanı 0). Ekran kapanınca CPU/Wi-Fi uykuya geçip
+      // akış tamponu boşalınca çalma duruyordu — Xiaomi'de özellikle sert.
+      // 2 = WAKE_MODE_NETWORK (CPU + Wi-Fi kilidi, yalnız çalarken tutulur).
+      // ⚠️ Kütüphane bu değeri `getInt` ile okuyup hep 0 alıyordu → patches/.
+      androidWakeMode: 2,
+      // Ağ hıçkırıklarına dayanıklılık: 2 dk'ya kadar önden tampon (~2.4 MB Opus).
+      minBuffer: 30,
+      maxBuffer: 120,
+      playBuffer: 2.5,
+    } as Parameters<typeof TrackPlayer.setupPlayer>[0]);
   } catch (e) {
     // "player already initialized" — sıcak yeniden yüklemede normal.
     console.warn("[audio] setupPlayer:", e);
   }
   await TrackPlayer.updateOptions({
     android: {
-      // Bildirimden kaydırınca çalma dursun (pil), servis öldürülmesin.
-      appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+      // ⭐ Uygulama son uygulamalardan kaydırılınca (ya da Xiaomi'nin "temizle"
+      // düğmesi bunu yapınca) çalma SÜRSÜN — kullanıcı: "ben durdurmadan
+      // durmasın". Eskiden `StopPlaybackAndRemoveNotification` idi: müzik
+      // "kendi kendine" duruyordu. Durdurmak için bildirimdeki duraklat yeter;
+      // duraklatılmışken bildirim kaydırılınca servis kapanır.
+      appKilledPlaybackBehavior: AppKilledPlaybackBehavior.ContinuePlayback,
     },
     // ⭐ Bildirimden OY: karma bu uygulamanın çekirdeği, kilit ekranından
     // ulaşılabilir olması gerekir. Başparmak yukarı/aşağı → `vote.ts`.

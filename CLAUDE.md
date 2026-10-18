@@ -1,14 +1,18 @@
 # Resonance Mobil — Proje Kılavuzu
 
+> ⚠️ **ÖNCE OKU: `docs/MASAUSTU-NOTLARI.md`** — masaüstü oturumunun mobil için bıraktığı
+> notlar (en yeni: v1.9.7 — sync-core yanlış "aynı ✅" diyor, migration v10, filtreli Keşfet).
+> Masaüstü deposu artık **`~/Desktop/ben/Resonance`**.
+
 Masaüstü **Resonance**'ın (Mac/Windows, Tauri) Android sürümü. Aynı SQLite şeması,
 aynı öneri motoru, aynı bulut senkronu — **farklı olan tek şey ses yolu**.
 Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya çıkmayacak.
 
-> Masaüstü deposu: `~/Desktop/Resonance` (v1.8.8). Oradaki **`CLAUDE.md`** mimarinin
+> Masaüstü deposu: `~/Desktop/ben/Resonance` (v1.9.7+). Oradaki **`CLAUDE.md`** mimarinin
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum (v1.0.3):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
+**Durum (v1.0.4):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
 ayarlar, veri/yedek, istatistik/zevk/özet, açık tema + vurgu rengi, TR/EN). Sürüm APK'sı
 R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı aşağıda ayrı yazılı.
 
@@ -62,9 +66,10 @@ kimlikleri), `navigator.language` (yoksa arayüz dili HEP "en" düşüyordu).
 `usePlaylistStore.ts`… **tek satır değişmeden** çalışır. Takma ad iki yerde tanımlı:
 `metro.config.js` + `tsconfig.json`.
 
-`scripts/sync-core.py` — kopyaları tazeler (30 dosya izleniyor).
+`scripts/sync-core.py` — kopyaları tazeler (32 dosya izleniyor; kaynak bulunamazsa ÇIKIŞ 1 — eskiden
+yanlışlıkla "aynı ✅" diyordu). ⚠️ SIRA: önce `gen-migrations.py`, sonra `sync-core.py`.
 `scripts/gen-migrations.py` — masaüstünün `lib.rs` migration'larını TS'e çevirir
-(**şema tek kaynaktan**; v1–v8, 17 tablo, senkron buna dayanır).
+(**şema tek kaynaktan**; v1–v10, senkron buna dayanır).
 `scripts/gen-icons.py` — uygulama/uyarlanabilir/tek renk ikon + açılış işareti,
 masaüstünün `src-tauri/app-icon.svg` geometrisinden (Pillow; SVG aracı yok).
 
@@ -271,6 +276,37 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
 - ⚠️ **Play Protect** sideload'da "App scan recommended" diyor (her kurulum/güncellemede);
   kullanıcı kapatabiliyor, kurulumu engellemiyor.
 - ℹ️ **Ayarlardaki uzun açıklamalar ⓘ arkasında** (`Section info=` / `InfoNote`).
+- ⛔⛔ **"Müzik kendi kendine duruyor" (kullanıcı, Xiaomi, 2026-10) — ÖLÇÜLEN KÖK NEDEN:
+  uyanık kilidi YOKTU.** track-player `androidWakeMode` varsayılanı 0 (yok); üstelik kütüphane
+  değeri `getInt` ile okuyor, RN köprüsü sayıları `Double` paketlediği için JS'ten verilse de
+  HEP 0 çıkıyordu → ekran kapanınca CPU/Wi-Fi uyuyup akış kesiliyordu. `patches/` (patch-package,
+  `postinstall`) `getDouble` yapar; `setupPlayer({ androidWakeMode: 2 })`. Doğrulama:
+  `dumpsys power` → `ExoPlayer:WakeLockManager`, `dumpsys wifi` → `ExoPlayer:WifiLockManager`.
+  Aynı turda bulunan diğer durma yolları:
+  - Oynatma hatasında taze adresle yeniden bağlanma da hata verirse `catch` çalmayı KALICI
+    durduruyordu (ağ kopunca) → artık `next("error")`.
+  - `startAt` art arda 3 hatada DURUYORDU → artık bekleyip sürer; ağ sorununda önce
+    önbellekteki/indirilmiş sıradaki parçaya geçer (`nextReadyOffline`). ÖLÇÜLDÜ: çalarken ağ
+    kesildi → "ağ sorunu — hazır parçaya geçiliyor" → çalma sürdü.
+  - Radyo beslemesi ağ yüzünden başarısız olunca kuyruk sonunda duruyordu → hazır parça / bağlantıyı bekle.
+  - `appKilledPlaybackBehavior` "kaydırınca dur" idi → `ContinuePlayback` (ölçüldü: son
+    uygulamalardan kaldırıldı, servis ön planda kaldı, bildirimden "sonraki" çalıştı).
+  - `audio/keepAlive.ts`: 20 sn tamponlama / 30 sn donmuş konum → taze adresle yeniden bağlan,
+    ikincisinde sıradakine geç (bu yol emülatörde TETİKLENEMEDİ — ağ kesilince ExoPlayer hata verdi).
+  - Pil kısıtlaması muafiyeti (Ayarlar → Oynatma, ilk çalışta bir kez öneri) — doğrulandı.
+  - `Network.getNetworkStateAsync()` açılış zincirinde beklenmiyor (45 sn sürebiliyor).
+- ⭐ **Listeye özel öneri** (`lib/playlistRadio.ts`, kullanıcı isteği): akıllı karışıkta öneri
+  tohumları ÇALAN LİSTEDEN (oyla ağırlıklı, sanatçı başına bir), genel zevk karışmaz. Sonuç
+  yoksa genel motora düşer (kuyruk boşalmasın). Ayar `mobile.playlistRadio` (varsayılan açık).
+  Paylaşılan `recommender.ts`'e DOKUNULMADI (kopya + masaüstü aynı anda çalışıyordu) — masaüstüne
+  taşınması önerildi (`docs/MASAUSTU-NOTLARI.md`). Ölçüldü: Favorite Songs → 4 tohum, 100 aday.
+- ⚠️ **Emülatör başkalarıyla ortak olabilir**: başka oturum `-no-window -no-audio` ile açık
+  bırakmıştı, saati geri kaymış ve DNS ölüydü (UnknownHost); üstte başka uygulama
+  (`com.pocket.calc`) vardı. Önce `adb shell ping www.youtube.com`; gerekirse `adb emu kill` + yeniden aç.
+- ⚠️ `uiautomator dump` hareketli `BarMark` varken "could not get idle state" verir → ekran
+  görüntüsü + koordinatla ilerle. Ortak `/sdcard/ui.xml` yerine kendi dosya adını kullan.
+- ℹ️ **Güncelleme penceresi** artık ekranın ORTASINDA (`UpdateDialog`), "Güncellemeden devam et"
+  yalnız o açılış için; eski sürümdeyken HER AÇILIŞTA gelir ("bu sürümü atla" kaldırıldı).
 - ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
 
 ## Özellikler

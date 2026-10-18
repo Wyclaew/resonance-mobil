@@ -1,6 +1,7 @@
 import TrackPlayer, { Event } from "react-native-track-player";
 
 import { voteCurrent } from "../lib/vote";
+import { setWantPlaying } from "./keepAlive";
 import { usePlayerStore } from "../store/usePlayerStore";
 
 /**
@@ -27,9 +28,19 @@ const player = () => usePlayerStore.getState();
 
 export async function PlaybackService() {
   TrackPlayer.addEventListener(Event.RemotePlay, () => safely("play", () => player().toggle()));
-  TrackPlayer.addEventListener(Event.RemotePause, () => safely("pause", () => TrackPlayer.pause()));
+  TrackPlayer.addEventListener(Event.RemotePause, () =>
+    safely("pause", () => {
+      setWantPlaying(false);
+      return TrackPlayer.pause();
+    })
+  );
   // "Durdur" konumu sıfırlamasın: kaldığın yerden devam edilebilsin.
-  TrackPlayer.addEventListener(Event.RemoteStop, () => safely("stop", () => TrackPlayer.pause()));
+  TrackPlayer.addEventListener(Event.RemoteStop, () =>
+    safely("stop", () => {
+      setWantPlaying(false);
+      return TrackPlayer.pause();
+    })
+  );
   TrackPlayer.addEventListener(Event.RemoteNext, () => safely("next", () => player().next("next")));
   TrackPlayer.addEventListener(Event.RemotePrevious, () => safely("previous", () => player().previous()));
   TrackPlayer.addEventListener(Event.RemoteSeek, ({ position }) =>

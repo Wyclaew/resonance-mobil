@@ -11,6 +11,7 @@ import { loadSettings, setSetting } from "./settings";
 const KEY_WIFI_ONLY = "mobile.wifiOnly";
 const KEY_DATA_SAVER = "mobile.dataSaver";
 const KEY_AMBIENT = "mobile.ambientSeconds";
+const KEY_PLAYLIST_RADIO = "mobile.playlistRadio";
 
 export interface MobileSettings {
   /** İndirme yalnız Wi-Fi'dayken yapılsın mı? Varsayılan AÇIK (veri kotası). */
@@ -24,9 +25,15 @@ export interface MobileSettings {
    * ekran koruyucusunu değiştirirdi. Telefonun bağlamı farklı: ayrı anahtar.
    */
   ambientSeconds: number;
+  /**
+   * Listeyi önerili (akıllı karışık) çalarken öneriler O LİSTEDEN tohumlansın mı?
+   * Varsayılan AÇIK — kullanıcı isteği: "spor listemde metal varsa, genel zevkim
+   * Türkçe olsa da o listeyi dinlerken metal önersin". Kapalıysa genel zevk.
+   */
+  playlistRadio: boolean;
 }
 
-const DEFAULTS: MobileSettings = { wifiOnly: true, dataSaver: false, ambientSeconds: 0 };
+const DEFAULTS: MobileSettings = { wifiOnly: true, dataSaver: false, ambientSeconds: 0, playlistRadio: true };
 
 export const useMobileSettings = create<MobileSettings>(() => ({ ...DEFAULTS }));
 
@@ -40,17 +47,21 @@ export async function loadMobileSettings(): Promise<MobileSettings> {
     wifiOnly: raw[KEY_WIFI_ONLY] !== "0",
     dataSaver: raw[KEY_DATA_SAVER] === "1",
     ambientSeconds: Number(raw[KEY_AMBIENT] ?? 0) || 0,
+    playlistRadio: raw[KEY_PLAYLIST_RADIO] !== "0",
   };
   useMobileSettings.setState(next);
-  try {
-    const net = await Network.getNetworkStateAsync();
-    cellular = net.type === Network.NetworkStateType.CELLULAR;
-    Network.addNetworkStateListener((s) => {
-      cellular = s.type === Network.NetworkStateType.CELLULAR;
+  // ⚠️ BEKLENMEZ: `getNetworkStateAsync` emülatörde 45 sn sürebildi (ölçüldü) ve
+  // bu fonksiyon açılış zincirinde — beklenirse zayıf ağda uygulama açılmıyordu.
+  Network.addNetworkStateListener((s) => {
+    cellular = s.type === Network.NetworkStateType.CELLULAR;
+  });
+  void Network.getNetworkStateAsync()
+    .then((net) => {
+      cellular = net.type === Network.NetworkStateType.CELLULAR;
+    })
+    .catch(() => {
+      // ağ durumu okunamazsa Wi-Fi varsayılır (kalite düşürülmez)
     });
-  } catch {
-    // ağ durumu okunamazsa Wi-Fi varsayılır (kalite düşürülmez)
-  }
   return next;
 }
 
@@ -71,4 +82,9 @@ export async function setAmbientSeconds(value: number): Promise<void> {
 export async function setDataSaver(value: boolean): Promise<void> {
   useMobileSettings.setState({ dataSaver: value });
   await setSetting(KEY_DATA_SAVER, value ? "1" : "0");
+}
+
+export async function setPlaylistRadio(value: boolean): Promise<void> {
+  useMobileSettings.setState({ playlistRadio: value });
+  await setSetting(KEY_PLAYLIST_RADIO, value ? "1" : "0");
 }

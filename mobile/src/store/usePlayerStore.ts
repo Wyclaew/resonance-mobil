@@ -2,6 +2,7 @@ import * as Network from "expo-network";
 import TrackPlayer, { State } from "react-native-track-player";
 import { create } from "zustand";
 
+import { setWantPlaying } from "../audio/keepAlive";
 import * as engine from "../audio/player";
 import { useSleepTimer } from "../audio/sleepTimer";
 import { prewarmUrls } from "../audio/urlCache";
@@ -14,11 +15,13 @@ import { isPlayableHere } from "../lib/localAudio";
 import { premeasure } from "../lib/loudness";
 import { noteListen } from "../lib/mood";
 import { PREF_MORE, setArtistPref } from "../lib/prefs";
+import { recommendFor } from "../lib/playlistRadio";
 import { onRelinked } from "../lib/relink";
 import { onMetaFilled } from "../lib/repairTracks";
 import {
   getRecommendations,
   recordRecommended,
+  shuffleArray,
   songCore,
   type Recommendation,
 } from "../lib/recommender";
@@ -134,6 +137,27 @@ let consecutiveErrors = 0;
 let loadingSince = 0;
 /** Karışık modda sıradaki önceden seçilir: hazırlanan parça ile "sonraki" aynı olsun. */
 let plannedShuffle: { uid: string; index: number } | null = null;
+/** Karışık açılmadan önceki sıra (uid'ler) — kapanınca geri dönülür. */
+let preShuffleOrder: string[] | null = null;
+
+/** Çalan başa, diğerleri bir kez karıştırılmış; eski sıra saklanır. */
+function shuffledAround(queue: QueueItem[], current: QueueItem | null | undefined): { queue: QueueItem[]; index: number } {
+  if (!current || queue.length < 2) return { queue, index: Math.max(0, queue.findIndex((i) => i.uid === current?.uid)) };
+  preShuffleOrder = queue.map((i) => i.uid);
+  const others = shuffleArray(queue.filter((i) => i.uid !== current.uid));
+  return { queue: [current, ...others], index: 0 };
+}
+
+/** Karışık öncesi sıraya dön; sonradan eklenenler (öneriler) çalanın önünde kalır. */
+function restoreOrder(queue: QueueItem[], current: QueueItem | null | undefined): QueueItem[] {
+  const order = preShuffleOrder;
+  preShuffleOrder = null;
+  if (!order || !current) return queue;
+  const pos = new Map(order.map((uid, i) => [uid, i]));
+  const known = queue.filter((i) => pos.has(i.uid)).sort((a, b) => pos.get(a.uid)! - pos.get(b.uid)!);
+  const extra = queue.filter((i) => !pos.has(i.uid));
+  return [...extra, ...known];
+}
 /** Keşfet açılışta önden hazırlanır (Wi-Fi'da) → düğmeye basınca anında başlar. */
 let discoveryPrewarm: Recommendation[] | null = null;
 let prewarming = false;
@@ -194,6 +218,28 @@ function whenOnline(fn: () => void): void {
   onlineTimer = setTimeout(() => fire(0), 20_000);
 }
 
+/** Art arda çok hatada sıradakini denemeden önce bekleme. */
+const RETRY_PAUSE_MS = 8000;
+
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+}
+
+/**
+ * Ağsız çalınabilecek sıradaki öğe: telefondaki dosya, kalıcı indirilen ya da
+ * önbellekteki (önden indirilmiş) parça. En fazla 15 öğe ileri bakılır.
+ */
+async function nextReadyOffline(queue: QueueItem[], from: number): Promise<number | null> {
+  const downloaded = useDownloadStore.getState().downloaded;
+  for (let k = 1; k < Math.min(queue.length, 16); k++) {
+    const at = (from + k) % queue.length;
+    const cand = queue[at];
+    if (isPlayableHere(cand) || downloaded.has(cand.id)) return at;
+    if (cand.source !== "local" && (await cachedPath(cand.id).catch(() => null))) return at;
+  }
+  return null;
+}
+
 /** Çalma HATASI sonrası atlamada mod sinyali yazılmaz (kullanıcı şarkıyı duymadı). */
 export function suppressMoodSignal(): void {
   skipMoodOnce = true;
@@ -223,7 +269,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     const navigating = reason === "prev" || reason === "jump" || correcting;
     if (navigating && short) return;
 
-    void recordPlay(cur, positionMs).catch((e) => console.warn("[geçmiş] yazılamadı:", e));
+    // ⭐ Filtreli Keşfet dinlemesi "filter" bağlamıyla yazılır (masaüstü v1.9.7):
+    // öneri motoru bunları sanatçı yakınlığına yalnız %20 katar; parça karması,
+    // favori dönüşü, zaman profili ve kabul oranına HİÇ katmaz → "bir gün Türkçe
+    // filtreyle dinledim, sonra hep Türkçe öneriyor" olmasın.
+    const st = get();
+    const context =
+      st.radioActive && st.radioPlaylistId === DISCOVERY_ID && st.discoveryFilters.length > 0 ? "filter" : null;
+    void recordPlay(cur, positionMs, context).catch((e) => console.warn("[geçmiş] yazılamadı:", e));
 
     // ⭐ OTURUM MODU: bu tarzı ne kadar dinledin? (lib/mood.ts)
     if (skipMoodOnce) skipMoodOnce = false;
@@ -243,18 +296,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   function planNext(): { index: number } | "refill" | "stop" {
     const { queue, index, shuffleMode, repeat, radioActive, current } = get();
     if (!queue.length) return "stop";
-    if (shuffleMode === "shuffle" && !radioActive) {
-      if (queue.length === 1) return repeat === "off" ? "stop" : { index };
-      if (!plannedShuffle || plannedShuffle.uid !== current?.uid) {
-        let r = index;
-        while (r === index) r = Math.floor(Math.random() * queue.length);
-        plannedShuffle = { uid: current?.uid ?? "", index: r };
-      }
-      return { index: plannedShuffle.index };
-    }
+    // ⛔ BUG'DI (masaüstü v1.9.6'da düzeltildi): karışık modda her "sonraki"
+    // RASTGELE İNDEKSE atlıyordu → aynı şarkı tekrar geliyor, bazıları hiç
+    // çalmıyordu. Artık kuyruk karışık açılınca BİR KEZ karıştırılır ve SIRAYLA
+    // çalınır; liste bitince (tekrar açıksa) yeniden karıştırılır.
     const nextIdx = index + 1;
     if (nextIdx < queue.length) return { index: nextIdx };
-    if (repeat === "all") return { index: 0 };
+    if (repeat === "all") {
+      if (shuffleMode === "shuffle" && !radioActive && current && queue.length > 2) {
+        const others = shuffleArray(queue.filter((i) => i.uid !== current.uid));
+        set({ queue: [current, ...others], index: 0 });
+        return { index: 1 };
+      }
+      return { index: 0 };
+    }
     if (radioActive) return "refill";
     const behavior = useSettingsStore.getState().queueEndBehavior;
     if (behavior === "repeat") return { index: 0 };
@@ -308,53 +363,81 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     } catch (e) {
       if (get().current?.uid !== item.uid) return;
       console.error("[player] çalınamadı:", item.title, errorText(e));
-      // ⚠️ BUG'DI (kullanıcı raporu: "Unable to resolve host youtubei.googleapis.com"
-      // ×3): bağlantı yokken her parça "çalınamadı" sayılıp üçü art arda atlanıyor,
-      // sonra çalma duruyordu. Ağ hatası parçanın suçu değil — atlama, bekle ve
-      // bağlantı gelince aynı parçayı aynı yerden yeniden dene.
-      const offline =
-        isNetworkError(e) &&
-        (await Network.getNetworkStateAsync()
-          .then((n) => !n.isConnected || n.isInternetReachable === false || /unknownhost|resolve host/i.test(errorText(e)))
-          .catch(() => true));
-      if (offline && opts.autoplay !== false && !(await cachedPath(item.id))) {
-        // Sırada İNDİRİLMİŞ bir parça varsa beklemek yerine ona geç: yolda,
-        // metroda internet giderken müzik kesilmesin.
-        const downloaded = useDownloadStore.getState().downloaded;
-        const q = get().queue;
-        const startFrom = get().index;
-        for (let k = 1; k < q.length; k++) {
-          const cand = q[(startFrom + k) % q.length];
-          if (isPlayableHere(cand) || downloaded.has(cand.id)) {
-            console.log(`[player] çevrimdışı — indirilmiş parçaya geçiliyor: ${cand.title}`);
-            useToastStore.getState().show(t("m.player.offlineJump"), "info");
-            await startAt((startFrom + k) % q.length);
-            return;
-          }
-        }
+      if (opts.autoplay === false) {
         engine.markUnloaded();
-        set({ loading: false, error: t("m.player.offline"), pendingStartMs: opts.startMs ?? 0 });
+        set({ loading: false, error: errorText(e) });
+        return;
+      }
+      // ⭐ KULLANICI İSTEĞİ: "ben durdurmadan müzik durmasın; yükleyemiyorsa
+      // sıradaki yüklenebilen şarkıya geçsin". Sıra:
+      //  1. Ağ sorunuysa (çevrimdışı/zaman aşımı) sırada ÖNBELLEKTE/İNDİRİLMİŞ parça
+      //     varsa ona geç (önden indirilen sıradaki şarkı çoğu zaman hazırdır).
+      //  2. Gerçekten çevrimdışıysa bağlantı gelince aynı yerden devam.
+      //  3. Parça hatasıysa sıradakine geç; art arda çok hata olursa DURMA —
+      //     kısa bekle, sonra sıradakiyle sür. Yalnız kuyruğun tamamı denendiyse dur.
+      // ⚠️ Ağ durumu sorgusu emülatörde 45 sn sürebildi → 2.5 sn sınır; yoksa hata
+      // yolunun kendisi müziği uzun süre sessiz bırakıyordu.
+      const netErr = isNetworkError(e);
+      const offline =
+        netErr &&
+        (await withDeadline(Network.getNetworkStateAsync(), 2500)
+          .then((n) => !n || !n.isConnected || n.isInternetReachable === false || /unknownhost|resolve host/i.test(errorText(e)))
+          .catch(() => true));
+      if (netErr && !(await cachedPath(item.id))) {
+        const k = await nextReadyOffline(get().queue, get().index);
+        if (k !== null) {
+          console.log(`[player] ağ sorunu — hazır parçaya geçiliyor: ${get().queue[k].title}`);
+          useToastStore.getState().show(t("m.player.offlineJump"), "info");
+          await startAt(k);
+          return;
+        }
+        if (offline) {
+          engine.markUnloaded();
+          set({ loading: false, error: t("m.player.offline"), pendingStartMs: opts.startMs ?? 0 });
+          whenOnline(() => {
+            const now = get();
+            if (now.current?.uid === item.uid && engine.loadedItemUid() !== item.uid && !now.loading) {
+              console.log("[player] bağlantı geldi — kaldığı yerden devam");
+              void startAt(now.index, { startMs: now.pendingStartMs });
+            }
+          });
+          return;
+        }
+      }
+      consecutiveErrors++;
+      const q = get().queue;
+      if (q.length > 1 && consecutiveErrors <= Math.max(MAX_CONSECUTIVE_ERRORS, q.length)) {
+        suppressMoodSignal();
+        set({ loading: false });
+        if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+          // Art arda çok hata: büyük olasılıkla ağ zayıf. Durmak yerine kısa bekle.
+          console.warn(`[player] art arda ${consecutiveErrors} hata — ${RETRY_PAUSE_MS / 1000} sn sonra sıradaki deneniyor`);
+          useToastStore.getState().show(t("m.player.weakNetwork"), "info");
+          setTimeout(() => {
+            const now = get();
+            if (now.current?.uid === item.uid && engine.loadedItemUid() !== item.uid && !now.loading) {
+              void get().next("error");
+            }
+          }, RETRY_PAUSE_MS);
+          return;
+        }
+        useToastStore.getState().show(t("player.trackFailed"), "error");
+        await get().next("error");
+        return;
+      }
+      // ⛔ "Yükleniyor"da ASILI KALMA (CLAUDE.md v1.8.8): durumu duraklatılmışa çek.
+      engine.markUnloaded();
+      set({ loading: false, error: errorText(e) });
+      useToastStore.getState().show(`${t("player.playFailed")}: ${errorText(e)}`, "error");
+      if (netErr) {
+        // Her şey denendi ama sebep ağ: bağlantı düzelince kendiliğinden yeniden dene.
         whenOnline(() => {
           const now = get();
           if (now.current?.uid === item.uid && engine.loadedItemUid() !== item.uid && !now.loading) {
-            console.log("[player] bağlantı geldi — kaldığı yerden devam");
-            void startAt(now.index, { startMs: now.pendingStartMs });
+            consecutiveErrors = 0;
+            void startAt(now.index, { startMs: opts.startMs ?? 0 });
           }
         });
-        return;
-      }
-      consecutiveErrors++;
-      const hasMore = get().queue.length > 1;
-      if (consecutiveErrors <= MAX_CONSECUTIVE_ERRORS && hasMore && opts.autoplay !== false) {
-        useToastStore.getState().show(t("player.trackFailed"), "error");
-        suppressMoodSignal();
-        set({ loading: false });
-        await get().next("error");
-      } else {
-        // ⛔ "Yükleniyor"da ASILI KALMA (CLAUDE.md v1.8.8): durumu duraklatılmışa çek.
-        engine.markUnloaded();
-        set({ loading: false, error: errorText(e) });
-        useToastStore.getState().show(`${t("player.playFailed")}: ${errorText(e)}`, "error");
       }
     }
   }
@@ -380,7 +463,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       const s = useSettingsStore.getState();
       const upcoming = st.queue.length - st.index - 1;
       const needed = Math.max(TARGET_QUEUE_AHEAD - upcoming, 5);
-      const recs = await getRecommendations({
+      const recs = await recommendFor({
         playlistId,
         // Keşfet'te besleme de AYNI filtreyle devam etmeli; yoksa kuyruk
         // ilerledikçe seçtiğin tür sessizce kaybolurdu.
@@ -413,7 +496,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       }
     } catch (e) {
       console.warn("[radyo] beslenemedi:", errorText(e));
-      if (playAfter) set({ loading: false });
+      if (playAfter) {
+        set({ loading: false });
+        // ⛔ BUG'DI: kuyruk biterken besleme ağ yüzünden başarısız olunca çalma
+        // DURUYORDU (Keşfet "sonsuz" olmasına rağmen). Önce hazır (indirilmiş/
+        // önbellekteki) bir parçayla sür, yoksa bağlantı gelince yeniden besle.
+        const k = await nextReadyOffline(get().queue, get().index);
+        if (k !== null && k !== get().index) {
+          console.log("[radyo] besleme yok — hazır parçayla devam");
+          void startAt(k);
+        } else {
+          const uid = get().current?.uid;
+          whenOnline(() => {
+            if (get().current?.uid === uid && !get().loading) void refillRadio(true);
+          });
+        }
+      }
     } finally {
       refilling = false;
     }
@@ -426,7 +524,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     const st = get();
     const remaining = Math.max(1, st.queue.length - st.index);
     try {
-      const recs = await getRecommendations({
+      const recs = await recommendFor({
         playlistId,
         excludeIds: new Set([...extraExclude, ...st.queue.map((i) => i.id), ...st.skippedRecIds, ...recommendedThisSession]),
         excludeCores: buildExcludeCores(),
@@ -538,14 +636,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       const items = (queue ?? [track]).map((t) => toItem(t, playlistId));
       const idx = Math.max(0, items.findIndex((i) => i.id === track.id));
       const smart = get().shuffleMode === "smart" && !!playlistId && playlistId !== DISCOVERY_ID;
+      const mode = get().shuffleMode === "smart" && !smart ? "off" : get().shuffleMode;
+      preShuffleOrder = null;
+      // Karışık açıkken listeden çalma: tıklanan şarkı başta, gerisi bir kez karışık.
+      const arranged = mode === "shuffle" ? shuffledAround(items, items[idx]) : { queue: items, index: idx };
       set({
-        queue: items,
+        queue: arranged.queue,
         radioActive: smart,
         radioPlaylistId: smart ? (playlistId ?? null) : null,
         // Listeden normal çalma Keşfet'in karışık kilidini taşımasın.
-        shuffleMode: get().shuffleMode === "smart" && !smart ? "off" : get().shuffleMode,
+        shuffleMode: mode,
       });
-      await startAt(idx, { startMs });
+      await startAt(arranged.index, { startMs });
       if (smart && playlistId) void fetchAndInterleave(playlistId, items.map((i) => i.id));
     },
 
@@ -735,6 +837,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       }
       const state = (await TrackPlayer.getPlaybackState()).state;
       if (state === State.Playing || state === State.Buffering || state === State.Loading) {
+        setWantPlaying(false);
         await TrackPlayer.pause();
       } else {
         // Oynatıcı hata/son durumundaysa play() sessizce hiçbir şey yapmaz.
@@ -771,6 +874,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         return;
       }
       if (plan === "stop") {
+        setWantPlaying(false);
         await TrackPlayer.pause().catch(() => {});
         await TrackPlayer.seekTo(0).catch(() => {});
         set({ loading: false });
@@ -850,7 +954,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         return;
       }
       if (shuffleMode === "off") {
-        set({ shuffleMode: "shuffle" });
+        const { queue, current } = get();
+        set({ shuffleMode: "shuffle", ...shuffledAround(queue, current) });
       } else if (shuffleMode === "shuffle") {
         const playlistId = get().current?.playlistId;
         set({ shuffleMode: "smart" });
@@ -861,9 +966,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
           useToastStore.getState().show(t("player.smartShuffleNeedsList"), "info");
         }
       } else {
-        // Akıllı karışıktan çık: sıradaki önerileri at, çalan kalsın.
+        // Akıllı karışıktan çık: sıradaki önerileri at, çalan kalsın; karışık
+        // öncesi sıra biliniyorsa ona dön (masaüstü v1.9.7 `preShuffleOrder`).
         const { queue, index, current } = get();
-        const filtered = queue.filter((item, i) => !(i > index && item.isRecommendation));
+        const filtered = restoreOrder(queue.filter((item, i) => !(i > index && item.isRecommendation)), current);
         const newIndex = current ? filtered.findIndex((i) => i.uid === current.uid) : index;
         set({
           queue: filtered,
