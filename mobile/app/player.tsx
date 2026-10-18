@@ -1,4 +1,6 @@
 import { Image } from "expo-image";
+import { usePlaylistStyleSheet } from "../src/components/PlaylistStyleSheet";
+import { isRealPlaylist } from "../src/lib/playlistRadio";
 import { router, useIsFocused } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
@@ -46,6 +48,8 @@ export default function Player() {
   const shuffleMode = usePlayerStore((s) => s.shuffleMode);
   const repeat = usePlayerStore((s) => s.repeat);
   const radioPlaylistId = usePlayerStore((s) => s.radioPlaylistId);
+  const radioActive = usePlayerStore((s) => s.radioActive);
+  const radioListName = usePlaylistStore((s) => s.playlists.find((p) => p.id === radioPlaylistId)?.name);
   const discovering = usePlayerStore((s) => s.discovering);
   const locked = usePlayerStore((s) => s.lockedSeedArtist);
   const playing = usePlayback((s) => s.playing);
@@ -219,6 +223,14 @@ export default function Player() {
           <Chip icon="lyrics" label={t("player.lyrics")} active={showLyrics} onPress={() => setShowLyrics((v) => !v)} />
           <Chip icon="listMusic" label={`${t("player.queue")} · ${Math.max(0, queue.length - index - 1)}`} onPress={() => router.push("/queue")} />
           <Chip icon="timer" label={sleepLabel} active={!!sleep.endsAt || sleep.afterTrack} onPress={() => setSleepOpen(true)} />
+          {/* Liste önerili karışıkta çalıyorsa: tarzı buradan da değiştir (kullanıcı isteği). */}
+          {radioActive && isRealPlaylist(radioPlaylistId) ? (
+            <Chip
+              icon="sliders"
+              label={t("m.plStyle.title")}
+              onPress={() => usePlaylistStyleSheet.getState().open(radioPlaylistId!, radioListName ?? "")}
+            />
+          ) : null}
           {current.source !== "local" ? (
             <Chip
               icon={downloaded ? "checkCircle" : "download"}

@@ -44,6 +44,13 @@ let prepared: { uid: string; index: number } | null = null;
 export const loadedItemUid = () => loadedUid;
 export const preparedNext = () => prepared;
 
+/** Önden hazırlanan sıradakini at (yüklenirken hata verdi) — sonra taze adresle yeniden hazırlanır. */
+export async function dropPrepared(): Promise<void> {
+  if (!prepared) return;
+  prepared = null;
+  await TrackPlayer.removeUpcomingTracks().catch(() => {});
+}
+
 /**
  * Şu anki parçanın eşitleme kazancı (0..1). Uyku zamanlayıcı sesi kıstıktan
  * sonra 1'e DEĞİL buna döner — yoksa sonraki parça eşitlemesiz patlardı.

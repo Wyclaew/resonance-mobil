@@ -307,6 +307,27 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
   görüntüsü + koordinatla ilerle. Ortak `/sdcard/ui.xml` yerine kendi dosya adını kullan.
 - ℹ️ **Güncelleme penceresi** artık ekranın ORTASINDA (`UpdateDialog`), "Güncellemeden devam et"
   yalnız o açılış için; eski sürümdeyken HER AÇILIŞTA gelir ("bu sürümü atla" kaldırıldı).
+- ⭐ **LİSTE PROFİLİ** (`lib/playlistProfile.ts` + `components/PlaylistStyleSheet.tsx`, kullanıcı
+  isteği 2026-10-18): listeye filtre (Keşfet kimlikleri) + serbest tarz ("phonk"; paylaşılan
+  filtre listesinde yok, YT Music'te o adla liste aranır) atanır → önerili karışıkta tohumlar o
+  tarzın havuzundan + listede o tarzda görülen kendi sanatçılarından; tarzlı listede genel öneriye
+  DÜŞÜLMEZ. `isolate` (varsayılan AÇIK): liste dinlemesi `context = "filter"` ile yazılır →
+  genel zevke yalnız %20 (paylaşılan motor kuralı), oturum modu da kaymaz. Liste kendi
+  sanatçı puanlarını öğrenir (≥%70 dinlenen +1, <%25'te geçilen −1, ±5 sınır). Cihaza özel
+  (localStorage), SENKRONLANMAZ. Ölçüldü: Favorite Songs + "phonk" → KSLV, Phonk Time, ZXKAI…
+  tohumları, sıraya phonk önerileri; dinleme `play_history.context = filter`.
+- ⛔ **Listede ortadayken arama → ekran bozuluyordu**: arama kutusu listenin BAŞLIĞINDAYDI;
+  ekran dışındaki kutu odaklanıp liste kısalınca kaydırma konumu aşağıda kalıyordu. Kutu artık
+  üst çubuğun altında sabit, sorgu değişince liste başa döner (doğrulandı).
+- ⛔ **"Çalınamadı" deyip duruyordu**: oynatma hatası işleyicisi yalnız `state === Error` iken
+  kurtarıyordu; hata sonrası durum başka kalınca hiçbir şey yapılmıyordu. Çalan sağlam çalıyorsa
+  hata önden hazırlanan sıradakine aittir → `dropPrepared` + taze adresle yeniden hazırla.
+- ⛔ `whenOnline` tek geri çağrı tutuyordu (ikinci bekleyen birincisini siliyordu) → liste.
+- ⚠️ Derin bağlantı / bildirime dokunma kök görünümü yeniden kurabiliyor ("Running main" iki
+  kez) → `runStartupTasks` artık tek seferlik (dinleyiciler/denetimler çiftlenmesin).
+- ⚠️ **Emülatörü başka oturum kullanıyor olabilir** (`com.pocket.calc.dev` testi sırasında
+  dokunuşlar karıştı) — `dumpsys activity activities | grep topResumedActivity` ile bak; başkası
+  öndeyse ekranla etkileşme.
 - ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
 
 ## Özellikler

@@ -1,8 +1,10 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Share, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, FlatList, Pressable, Share, Text, TextInput, View } from "react-native";
 
+import { Icon } from "../../src/components/Icon";
 import { useBottomSpace } from "../../src/components/MiniPlayer";
+import { usePlaylistStyleSheet } from "../../src/components/PlaylistStyleSheet";
 import { Sheet, SheetAction } from "../../src/components/Sheet";
 import { TrackRow } from "../../src/components/TrackRow";
 import { Button, EmptyState, Eyebrow, IconButton, Mosaic, TopBar } from "../../src/components/ui";
@@ -10,7 +12,9 @@ import { useCovers } from "../../src/store/useCovers";
 import { duration } from "../../src/lib/fmt";
 import { hapticSuccess, hapticWarn } from "../../src/lib/haptics";
 import { useLang, useT } from "../../src/lib/i18n.mobile";
+import { filterById } from "../../src/lib/filters";
 import { cooldownRemaining } from "../../src/lib/karma";
+import { getProfile, usePlaylistProfiles } from "../../src/lib/playlistProfile";
 import * as pl from "../../src/lib/playlists";
 import { onTracksRepaired } from "../../src/lib/repairTracks";
 import { encodePlaylist } from "../../src/lib/share";
@@ -66,6 +70,26 @@ export default function PlaylistScreen() {
     const q = query.trim().toLowerCase();
     return q ? sorted.filter((tr) => tr.title.toLowerCase().includes(q) || tr.artist.toLowerCase().includes(q)) : sorted;
   }, [tracks, sortMode, query]);
+
+  // Arama açılınca / sorgu değişince listenin başına dön (sonuçlar görünür kalsın).
+  const listRef = useRef<FlatList<PlaylistTrack>>(null);
+  useEffect(() => {
+    if (searching) listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [searching, query]);
+
+  // Profil depoya etkiyle yüklenir (render sırasında depo güncellenmesin).
+  const stored = usePlaylistProfiles((st) => (id ? st.profiles[id] : undefined));
+  useEffect(() => {
+    if (id) getProfile(id);
+  }, [id]);
+  const profile = stored ?? { filters: [], styles: [], isolate: true, artists: {} };
+  const styleLabel = [
+    ...profile.styles,
+    ...profile.filters.map((f) => {
+      const def = filterById(f);
+      return def ? t(def.labelKey) : f;
+    }),
+  ].join(" · ");
 
   const totalMs = tracks.reduce((a, tr) => a + (tr.durationMs || 0), 0);
   const missing = tracks.filter((tr) => tr.source !== "local" && !downloaded.has(tr.id)).length;
@@ -152,23 +176,35 @@ export default function PlaylistScreen() {
             className="flex-1"
           />
           <IconButton name="shuffle" label={t("playlist.playShuffled")} onPress={() => void usePlayerStore.getState().playShuffled(tracks, id)} />
-          <IconButton
-            name="sparkles"
-            label={t("playlist.playSmart")}
-            color={c.accent}
+          {/* Önerili karışık: liste tarzının kullanıldığı yer — simge yerine yazılı düğme
+              (yalnız ✦ simgesi bulunmuyordu). */}
+          <Button
+            kind="secondary"
+            icon="sparkles"
+            label={t("m.home.smartShuffle")}
             onPress={() => void usePlayerStore.getState().startSmartShuffle(tracks, id!)}
           />
         </View>
       ) : null}
-      {searching ? (
-        <TextInput
-          autoFocus
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t("playlist.searchInList")}
-          placeholderTextColor={c.faint}
-          className="bg-surface-2 text-text mt-4 h-11 rounded-2xl px-4 text-[14px]"
-        />
+      {/* ⭐ Liste tarzı (kullanıcı isteği): önerili karışıkta öneriler bu tarzdan gelir,
+          genel zevk karışmaz. Dokununca `PlaylistStyleSheet`. */}
+      {id ? (
+        <Pressable
+          onPress={() => usePlaylistStyleSheet.getState().open(id, playlist?.name ?? "")}
+          android_ripple={{ color: c.surface3 }}
+          className="bg-surface border-border mt-3 flex-row items-center rounded-2xl border px-3.5 py-3"
+        >
+          <Icon name="sliders" size={17} color={styleLabel ? c.accent : c.muted} />
+          <View className="ml-3 flex-1">
+            <Text className="text-text text-[13px]" style={{ fontFamily: "Inter_600SemiBold" }}>
+              {t("m.plStyle.title")}
+            </Text>
+            <Text className={styleLabel ? "text-accent text-[12px]" : "text-muted text-[12px]"} numberOfLines={1}>
+              {(styleLabel || t("m.plStyle.none")) + (profile.isolate ? ` · ${t("m.plStyle.isolatedNote")}` : "")}
+            </Text>
+          </View>
+          <Icon name="chevronRight" size={16} color={c.faint} />
+        </Pressable>
       ) : null}
       {reorder ? (
         <View className="mt-3 flex-row items-center justify-between">
@@ -190,10 +226,41 @@ export default function PlaylistScreen() {
           </>
         }
       />
+      {/* ⛔ BUG'DI (kullanıcı): listenin ortasındayken büyütece basınca ekran bozuluyordu.
+          Arama kutusu listenin BAŞLIĞINDAYDI (ekranın çok üstünde): ekran dışındaki kutu
+          odaklanıp klavye açılıyor, yazdıkça liste kısalırken kaydırma konumu aşağıda
+          kalıyordu → boş/kaymış ekran. Artık kutu üst çubuğun altında sabit, sorgu
+          değişince liste başa döner. */}
+      {searching ? (
+        <View className="flex-row items-center px-4 pb-2">
+          <View className="bg-surface-2 h-11 flex-1 flex-row items-center rounded-2xl px-3.5">
+            <Icon name="search" size={16} color={c.muted} />
+            <TextInput
+              autoFocus
+              value={query}
+              onChangeText={setQuery}
+              placeholder={t("playlist.searchInList")}
+              placeholderTextColor={c.faint}
+              autoCorrect={false}
+              returnKeyType="search"
+              className="text-text ml-2.5 h-11 flex-1 text-[14px]"
+              style={{ fontFamily: "Inter_400Regular" }}
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityLabel={t("common.clear")}>
+                <Icon name="x" size={16} color={c.muted} />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
       <FlatList
+        ref={listRef}
         data={shown}
         keyExtractor={(tr) => tr.id}
-        ListHeaderComponent={header}
+        ListHeaderComponent={searching && query.trim() ? null : header}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingBottom: bottom, paddingHorizontal: 4 }}
         initialNumToRender={14}
         windowSize={9}

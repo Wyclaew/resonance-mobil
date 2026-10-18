@@ -19,6 +19,7 @@ import { AddToPlaylistSheet } from "../src/components/AddToPlaylistSheet";
 import { BarMark } from "../src/components/BarMark";
 import { MiniPlayer } from "../src/components/MiniPlayer";
 import { Toasts } from "../src/components/Toasts";
+import { PlaylistStyleSheet } from "../src/components/PlaylistStyleSheet";
 import { PortalHost } from "../src/components/Portal";
 import { TrackSheet } from "../src/components/TrackSheet";
 import { UpdateDialog } from "../src/components/UpdateDialog";
@@ -151,6 +152,7 @@ export default function RootLayout() {
         <AddToPlaylistSheet />
         <TrackSheet />
         <VersionSheet />
+        <PlaylistStyleSheet />
         <UpdateDialog />
         {/* Alt sayfalar burada, ekranların ve mini oynatıcının üstünde çizilir (Modal değil — Portal.tsx). */}
         <PortalHost />

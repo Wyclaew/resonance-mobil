@@ -27,6 +27,8 @@ import * as engine from "./player";
 const CHECK_MS = 5000;
 const BUFFER_STALL_MS = 20_000;
 const FROZEN_STALL_MS = 30_000;
+const LOADING_STALL_MS = 45_000;
+let loadingSince = 0;
 
 let installed = false;
 /** Kullanıcının niyeti: çalsın mı? Duraklatma tuşları false yapar. */
@@ -68,7 +70,19 @@ async function tick(): Promise<void> {
     if (!wantPlaying) return;
     const st = usePlayerStore.getState();
     const cur = st.current;
-    if (!cur || st.loading || engine.loadedItemUid() !== cur.uid) return;
+    // "Yükleniyor"da asılı kalma: 45 sn'den uzun sürerse aynı parçayı yeniden başlat
+    // (toggle yükleme takıldıysa yeniden dener).
+    if (cur && st.loading) {
+      if (!loadingSince) loadingSince = Date.now();
+      else if (Date.now() - loadingSince > LOADING_STALL_MS) {
+        loadingSince = 0;
+        console.warn(`[audio] 45 sn'dir yükleniyor — yeniden deneniyor: ${cur.title}`);
+        await usePlayerStore.getState().toggle();
+      }
+      return;
+    }
+    loadingSince = 0;
+    if (!cur || engine.loadedItemUid() !== cur.uid) return;
     const { state } = await TrackPlayer.getPlaybackState();
     const now = Date.now();
 

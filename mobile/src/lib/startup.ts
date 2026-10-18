@@ -24,7 +24,15 @@ import type { Track } from "../types";
  * Açılıştan SONRA arka planda koşan işler (masaüstü App.tsx açılış bloğunun
  * karşılığı). Hiçbiri arayüzü bekletmez; hiçbirinin hatası uygulamayı durdurmaz.
  */
+let startupDone = false;
+
 export function runStartupTasks(): void {
+  // ⚠️ YALNIZ BİR KEZ: derin bağlantı / bildirime dokunma kök görünümü yeniden
+  // kurabiliyor (ölçüldü: `resonance://player` → "Running main" iki kez) ve kök
+  // düzenin açılış etkisi tekrar koşuyordu → dinleyiciler, güncelleme denetimi,
+  // yedek ve onarım turları ikişer kez.
+  if (startupDone) return;
+  startupDone = true;
   // Kütüphane durumu: listeler + indirilenler (satırlardaki ✓).
   void usePlaylistStore.getState().refresh();
   void useDownloadStore.getState().refresh();

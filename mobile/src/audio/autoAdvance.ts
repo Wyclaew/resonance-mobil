@@ -5,6 +5,7 @@ import { onAdvancedTo, recordEndedPlay, suppressMoodSignal, usePlayerStore } fro
 import { useToastStore } from "../store/useToastStore";
 import { setWantPlaying } from "./keepAlive";
 import * as engine from "./player";
+import { invalidateUrl } from "./urlCache";
 import { useSleepTimer } from "./sleepTimer";
 
 /**
@@ -123,7 +124,23 @@ export function installAutoAdvance(): void {
       const current = store.current;
       if (!current) return;
       const { state } = await TrackPlayer.getPlaybackState();
-      if (state !== State.Error) return;
+      // Çalan parça sağlam çalıyorsa hata ÖNDEN HAZIRLANAN sıradakine aittir
+      // (boşluksuz geçiş için yüklenen öğe): çalanı bozma, sıradakini taze
+      // adresle yeniden hazırla.
+      // ⛔ BUG'DI: yalnız `state === Error` iken kurtarılıyordu; hata sonrası durum
+      // "none/stopped/ready" kalınca hiçbir şey yapılmıyor, müzik "çalınamadı"
+      // bildirimiyle sessizce duruyordu (kullanıcı raporu).
+      if (state === State.Playing || state === State.Buffering) {
+        const prep = engine.preparedNext();
+        const item = prep ? store.queue.find((i) => i.uid === prep.uid) : undefined;
+        if (item) {
+          console.warn(`[audio] sıradaki hazırlanırken hata — taze adresle yeniden: ${item.title}`);
+          invalidateUrl(item.sourceId);
+          await engine.dropPrepared();
+          usePlayerStore.getState().refreshUpcoming();
+        }
+        return;
+      }
       const { position } = await TrackPlayer.getProgress().catch(() => ({ position: 0 }));
       // Adresin süresi dolmuş olabilir (uzun duraklatma, 403): önce taze adresle
       // aynı yerden bir kez dene (parça başına dakikada bir); olmazsa atla.

@@ -15,7 +15,8 @@ import { isPlayableHere } from "../lib/localAudio";
 import { premeasure } from "../lib/loudness";
 import { noteListen } from "../lib/mood";
 import { PREF_MORE, setArtistPref } from "../lib/prefs";
-import { recommendFor } from "../lib/playlistRadio";
+import { getProfile, noteListen as noteListInListen } from "../lib/playlistProfile";
+import { isRealPlaylist, recommendFor } from "../lib/playlistRadio";
 import { onRelinked } from "../lib/relink";
 import { onMetaFilled } from "../lib/repairTracks";
 import {
@@ -107,6 +108,11 @@ interface PlayerState {
   restore: () => void;
   /** Sıradaki kararını etkileyen bir şey değişti (uyku, ayar) → hazırlığı yenile. */
   refreshUpcoming: () => void;
+  /**
+   * Liste tarzı değişti: bu liste şu an önerili çalıyorsa sıradaki önerileri at ve
+   * yeni tarzla yeniden serpiştir. Çalıyorsa `true`.
+   */
+  restylePlaylist: (playlistId: string) => boolean;
 }
 
 /** Keşfet oturumunun sanal liste kimliği — masaüstüyle AYNI değer. */
@@ -199,19 +205,35 @@ function toRecItem(r: Recommendation, playlistId: string): QueueItem {
 /** Bağlantı geri gelince bir kez çağır (bekleyen tek dinleyici; yenisi eskisinin yerini alır). */
 let onlineSub: { remove: () => void } | null = null;
 let onlineTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Bağlantı gelince (ya da en geç 20 sn sonra) bekleyen işleri çalıştır.
+ * ⛔ BUG'DI: tek geri çağrı tutuluyordu — aynı anda iki iş beklerse (çalan parça +
+ * radyo beslemesi) ikincisi birincisini SİLİYOR, bağlantı gelince şarkı hiç
+ * sürmüyordu. Artık bekleyenler listede, hepsi bir kez çalışır.
+ */
+const onlineWaiters: (() => void)[] = [];
 function whenOnline(fn: () => void): void {
-  onlineSub?.remove();
-  if (onlineTimer) clearTimeout(onlineTimer);
+  onlineWaiters.push(fn);
+  if (onlineSub || onlineTimer) return;
   const fire = (delay: number) => {
     onlineSub?.remove();
     onlineSub = null;
     if (onlineTimer) clearTimeout(onlineTimer);
     onlineTimer = null;
-    setTimeout(fn, delay);
+    const fns = onlineWaiters.splice(0);
+    setTimeout(() => {
+      for (const f of fns) {
+        try {
+          f();
+        } catch (e) {
+          console.warn("[player] bağlantı sonrası iş başarısız:", e);
+        }
+      }
+    }, delay);
   };
-  onlineSub = Network.addNetworkStateListener((s) => {
+  onlineSub = Network.addNetworkStateListener((st) => {
     // Bağlantı "var" dendiği anda DNS henüz hazır olmayabiliyor — kısa pay.
-    if (s.isConnected && s.isInternetReachable !== false) fire(1500);
+    if (st.isConnected && st.isInternetReachable !== false) fire(1500);
   });
   // Ağ durumu değişmeden de düzelebilir (Wi-Fi bağlı ama DNS/internet yoktu):
   // 20 sn'de bir yeniden dene; hâlâ yoksa hata yolu yeniden bekletir.
@@ -274,13 +296,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     // favori dönüşü, zaman profili ve kabul oranına HİÇ katmaz → "bir gün Türkçe
     // filtreyle dinledim, sonra hep Türkçe öneriyor" olmasın.
     const st = get();
+    // ⭐ LİSTE PROFİLİ (kullanıcı isteği): "playlist dinlerken genel zevk profili
+    // çalışmasın" — listenin `isolate` ayarı açıksa (varsayılan) dinleme de
+    // "filter" bağlamıyla yazılır; liste kendi profilinden öğrenir.
+    const listId = isRealPlaylist(cur.playlistId) ? cur.playlistId : null;
+    const isolated = !!listId && getProfile(listId).isolate;
     const context =
-      st.radioActive && st.radioPlaylistId === DISCOVERY_ID && st.discoveryFilters.length > 0 ? "filter" : null;
+      isolated || (st.radioActive && st.radioPlaylistId === DISCOVERY_ID && st.discoveryFilters.length > 0)
+        ? "filter"
+        : null;
     void recordPlay(cur, positionMs, context).catch((e) => console.warn("[geçmiş] yazılamadı:", e));
+    if (listId && durationMs > 0) noteListInListen(listId, cur.artist, positionMs / durationMs, reason === "next");
 
-    // ⭐ OTURUM MODU: bu tarzı ne kadar dinledin? (lib/mood.ts)
+    // ⭐ OTURUM MODU: bu tarzı ne kadar dinledin? (lib/mood.ts) — yalıtılmış liste
+    // dinlemesi Keşfet'in oturum modunu da kaydırmasın.
     if (skipMoodOnce) skipMoodOnce = false;
-    else if (cur.isRecommendation && durationMs > 0) noteListen(cur.seedArtist, positionMs / durationMs);
+    else if (!isolated && cur.isRecommendation && durationMs > 0) noteListen(cur.seedArtist, positionMs / durationMs);
 
     if (
       !navigating &&
@@ -354,6 +385,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     if (!item) return;
     plannedShuffle = null;
     loadingSince = Date.now();
+    // Bekçi (keepAlive) "kullanıcı çalmak istiyor"u bilsin — yükleme takılırsa kurtarır.
+    if (opts.autoplay !== false) setWantPlaying(true);
     set({ index, current: item, loading: true, error: null, pendingStartMs: 0 });
     try {
       const ok = await engine.startItem(item, opts);
@@ -1023,6 +1056,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     },
 
     refreshUpcoming: () => prepareNext(),
+
+    restylePlaylist: (playlistId) => {
+      const { radioActive, radioPlaylistId, queue, index, current } = get();
+      if (!radioActive || radioPlaylistId !== playlistId) return false;
+      const kept = queue.filter((item, i) => !(i > index && item.isRecommendation));
+      const at = current ? kept.findIndex((i) => i.uid === current.uid) : index;
+      set({ queue: kept, index: at >= 0 ? at : index });
+      prepareNext();
+      void fetchAndInterleave(playlistId, kept.map((i) => i.id));
+      return true;
+    },
 
     restore: () => {
       set({ savedDiscovery: loadDiscoverySession() });

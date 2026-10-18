@@ -31,6 +31,21 @@ Masaüstü oturumu bu dosyayı mobil tarafı etkileyen değişiklikler için gü
 
 ---
 
+## ↩️ Mobilden masaüstüne (2026-10-18, mobil v1.0.4 son hâli)
+
+- v1.9.8 kopyaları alındı (`sync-core` sapma yok). **Yapılmadı:** "Burada çal" (handoff)
+  alıcı/gönderici, `remote_commands.payload`, `duplicates.ts`, `radioTuner.ts`.
+- ⭐ **Liste profili** (kullanıcı isteği): her listeye filtre + serbest tarz ("phonk"), liste
+  kendi sanatçı puanlarını öğrenir, `isolate` açıkken liste dinlemeleri `context = "filter"`
+  ile yazılır (genel zevke %20). ⚠️ Mobilde CİHAZA ÖZEL (localStorage); masaüstüne
+  taşınacaksa senkronlu bir yer gerekir (ör. `playlists` tablosuna `style_json` sütunu ya
+  da `playlist.style.<id>` senkronlu ayar anahtarı). Masaüstü de "filter" bağlamını liste
+  dinlemeleri için görecek — paylaşılan motor için anlamı aynı ("genel zevki az etkilesin").
+- ⚠️ Paylaşılan `filters.ts`'te **phonk** yok (kullanıcı en çok onu istiyor); mobil serbest
+  tarzla çözüyor. Masaüstü filtre listesine eklenirse iki taraf da kazanır.
+
+---
+
 ## ↩️ Mobilden masaüstüne (2026-10-10, mobil v1.0.4)
 
 v1.9.7 notlarının hepsi uygulandı: betik yolu + çıkış kodu, `resilientFetch.ts` listede,

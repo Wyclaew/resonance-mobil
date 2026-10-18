@@ -50,11 +50,14 @@ export function MiniPlayer() {
 
   return (
     <GestureDetector gesture={swipe}>
+    {/* Giriş/çıkış animasyonu dışta, sürükleme dönüşümü içte: aynı görünümde ikisi
+        çakışıyordu (Reanimated: "transform … overwritten by a layout animation"). */}
     <Animated.View
       entering={FadeInDown.duration(220)}
       exiting={FadeOutDown.duration(160)}
-      style={[{ position: "absolute", left: 8, right: 8, bottom: bottom + 6, height: MINI_PLAYER_HEIGHT - 8 }, dragStyle]}
+      style={{ position: "absolute", left: 8, right: 8, bottom: bottom + 6, height: MINI_PLAYER_HEIGHT - 8 }}
     >
+    <Animated.View style={[{ flex: 1 }, dragStyle]}>
       <Pressable
         onPress={() => router.push("/player")}
         className="bg-surface-2 border-border h-full flex-row items-center overflow-hidden rounded-2xl border pl-2 pr-1"
@@ -100,6 +103,7 @@ export function MiniPlayer() {
         </Pressable>
         <ProgressLine />
       </Pressable>
+    </Animated.View>
     </Animated.View>
     </GestureDetector>
   );
