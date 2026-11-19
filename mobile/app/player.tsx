@@ -4,7 +4,6 @@ import { isRealPlaylist } from "../src/lib/playlistRadio";
 import { router, useIsFocused } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
-import { useProgress } from "react-native-track-player";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSleepTimer } from "../src/audio/sleepTimer";
@@ -28,7 +27,9 @@ import { usePlayback } from "../src/store/usePlayback";
 import { DISCOVERY_ID, usePlayerStore } from "../src/store/usePlayerStore";
 import { usePlaylistStore } from "../src/store/usePlaylistStore";
 import { useMobileSettings } from "../src/lib/mobileSettings";
+import { useToastStore } from "../src/store/useToastStore";
 import { alpha, useColors } from "../src/theme";
+import { useLiveProgress } from "../src/audio/useLiveProgress";
 
 /**
  * Tam ekran oynatıcı — masaüstündeki alt çubuk + sıra paneli + sözler.
@@ -57,6 +58,7 @@ export default function Player() {
   const sleep = useSleepTimer();
   const [showLyrics, setShowLyrics] = useState(false);
   const [sleepOpen, setSleepOpen] = useState(false);
+  const [addedTo, setAddedTo] = useState<string | null>(null);
   const downloaded = useDownloadStore((s) => (current ? s.downloaded.has(current.id) : false));
   const job = useDownloadStore((s) => (current ? s.jobs[current.id] : undefined));
   const playlistName = usePlaylistStore((s) => s.playlists.find((p) => p.id === current?.playlistId)?.name);
@@ -75,6 +77,14 @@ export default function Player() {
 
   const art = Math.min(width - 48, 420);
   const inDiscovery = radioPlaylistId === DISCOVERY_ID;
+
+  // Çalan öneriyi tek dokunuşla listeye al (Spotify `aligned_curation`).
+  async function addCurrentToList(playlistId: string) {
+    if (!current) return;
+    const added = await usePlaylistStore.getState().addTrack(playlistId, current);
+    setAddedTo(current.id);
+    useToastStore.getState().show(t(added ? "m.suggest.added" : "m.addTo.alreadyHere"), added ? "success" : "info");
+  }
   const context = inDiscovery
     ? t("nav.discover")
     : current.playlistId?.startsWith("artist:")
@@ -152,6 +162,20 @@ export default function Player() {
                   >
                     {current.isProbe ? t("discover.probe") : reasonText(current.recReason, lang)}
                   </Text>
+                  {isRealPlaylist(radioPlaylistId) && addedTo !== current.id ? (
+                    <Pressable
+                      onPress={() => void addCurrentToList(radioPlaylistId)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("m.suggest.addToThis")}
+                      className="ml-2 flex-row items-center"
+                    >
+                      <Icon name="plus" size={13} color={c.accent} />
+                      <Text className="text-accent text-[11px]" style={{ fontFamily: "Inter_600SemiBold" }}>
+                        {t("m.suggest.addShort")}
+                      </Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : null}
               <Text className="text-text text-[24px] leading-[29px]" style={{ fontFamily: "Archivo_800ExtraBold" }} numberOfLines={2}>
@@ -316,7 +340,7 @@ function useIdleAmbient(): () => void {
 /** Sözler kendi ilerleme aboneliğiyle — oynatıcının tamamı saniyede 4 kez çizilmesin. */
 function LyricsLive() {
   const current = usePlayerStore((s) => s.current);
-  const { position } = useProgress(300);
+  const { position } = useLiveProgress(300);
   if (!current) return null;
   return <Lyrics track={current} positionMs={position * 1000} large />;
 }

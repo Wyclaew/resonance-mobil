@@ -7,6 +7,7 @@
 // Bkz. scripts/sync-core.py ve CLAUDE.md "Kod paylaşımı".
 import * as Extractor from "../../modules/resonance-extractor";
 import type { Track } from "../types";
+import { Directory, File, Paths } from "expo-file-system";
 
 type Args = Record<string, unknown>;
 
@@ -65,8 +66,11 @@ async function getLyrics(args: Args): Promise<{ synced: string | null; plain: st
   const artist = String(args.artist ?? "");
   const title = cleanTitle(String(args.title ?? ""));
   const key = `${artist.toLowerCase()}|${title.toLowerCase()}`;
-  const memo = lyricsMemo.get(key);
-  if (memo) return memo;
+  const memo = lyricsMemo.get(key) ?? readLyricsFile(key);
+  if (memo) {
+    lyricsMemo.set(key, memo);
+    return memo;
+  }
   const url =
     "https://lrclib.net/api/search?" +
     new URLSearchParams({ track_name: title, artist_name: artist }).toString();
@@ -88,7 +92,44 @@ async function getLyrics(args: Args): Promise<{ synced: string | null; plain: st
   }
   const result = { synced, plain };
   lyricsMemo.set(key, result);
+  // Yalnız BULUNAN sözler diske: "yok" sonucu kalıcı olursa lrclib sonradan eklese de görünmezdi.
+  if (synced || plain) writeLyricsFile(key, result);
   return result;
+}
+
+/**
+ * Söz önbelleği diske (kalıcı): lrclib ara ara 5xx veriyor, indirilen şarkının sözü de
+ * çevrimdışı açılsın. Anahtar → dosya adı küçük bir hash (sanatçı|başlık).
+ */
+type LyricsResult = { synced: string | null; plain: string | null };
+
+function lyricsFile(key: string): File {
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) >>> 0;
+  return new File(new Directory(Paths.document, "lyrics"), `${h.toString(36)}.json`);
+}
+
+function readLyricsFile(key: string): LyricsResult | null {
+  try {
+    const f = lyricsFile(key);
+    if (!f.exists) return null;
+    const saved = JSON.parse(f.textSync()) as LyricsResult & { key?: string };
+    return saved.key === key ? { synced: saved.synced, plain: saved.plain } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLyricsFile(key: string, result: LyricsResult): void {
+  try {
+    const dir = new Directory(Paths.document, "lyrics");
+    if (!dir.exists) dir.create({ intermediates: true });
+    const f = lyricsFile(key);
+    if (!f.exists) f.create();
+    f.write(JSON.stringify({ key, ...result }));
+  } catch (e) {
+    console.warn("[sözler] önbelleğe yazılamadı:", e);
+  }
 }
 
 /** Rust `clean_title` ile aynı: parantez içi + "feat" kuyruğu atılır. */

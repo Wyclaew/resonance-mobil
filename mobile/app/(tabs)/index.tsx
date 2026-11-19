@@ -12,6 +12,7 @@ import { useCovers } from "../../src/store/useCovers";
 import { getDb } from "../../src/lib/db";
 import { ago, clock } from "../../src/lib/fmt";
 import { getRecentTracks, weekDiscoveries } from "../../src/lib/history";
+import { tracksForThisHour } from "../../src/lib/hourly";
 import { dayNameOf } from "../../src/lib/i18n";
 import { useLang, useT } from "../../src/lib/i18n.mobile";
 import { getPlaylistTracks } from "../../src/lib/playlists";
@@ -44,6 +45,7 @@ export default function Home() {
   const { rows: remote } = useRemoteQueues();
   const [recent, setRecent] = useState<Track[]>([]);
   const [fresh, setFresh] = useState<Track[]>([]);
+  const [hourly, setHourly] = useState<Track[]>([]);
   const [predicted, setPredicted] = useState<string[]>([]);
   const [startingList, setStartingList] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
@@ -55,6 +57,7 @@ export default function Home() {
       setRecent(r);
       setPredicted(predictedStyles(3));
       setFresh(await weekDiscoveries(10));
+      setHourly(await tracksForThisHour(10));
     } catch (e) {
       console.warn("[ana sayfa] yüklenemedi:", e);
     }
@@ -205,6 +208,12 @@ export default function Home() {
               </Pressable>
             ))}
           </ScrollView>
+        </Section>
+      ) : null}
+
+      {hourly.length ? (
+        <Section title={t("m.home.thisHour")}>
+          <Shelf tracks={hourly} />
         </Section>
       ) : null}
 

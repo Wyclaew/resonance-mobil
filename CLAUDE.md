@@ -12,7 +12,7 @@ Kullanıcı: Eren. **İletişim dili: Türkçe.** Kişisel kullanım, mağazaya 
 > ve tuzakların ana kaynağı; **`docs/MOBILE.md`** bu projenin planı; **`docs/SYNC.md`**
 > senkron protokolü. Mobil'e özgü ölçümler: **`docs/FAZ0-SES-YOLU.md`**.
 
-**Durum (v1.0.4):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
+**Durum (v1.0.6):** Masaüstünün sistemleri taşındı (oynatıcı çekirdeği, Keşfet, listeler,
 ayarlar, veri/yedek, istatistik/zevk/özet, açık tema + vurgu rengi, TR/EN). Sürüm APK'sı
 R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı aşağıda ayrı yazılı.
 
@@ -25,7 +25,7 @@ R8 ile küçültülmüş, yalnız arm64 (~46 MB). Neyin cihazda doğrulandığı
 - ⚠️ **Depo 2026-09-16'dan beri HERKESE AÇIK** (kullanıcı kararı: üniversite grubuyla
   paylaşacak). Sonuçları: YouTube ToS riski artar (kişisel kullanım savunması zayıflar),
   APK'daki Supabase projesi ortaktır (RLS veriyi ayırır, kota ayırmaz → "kendi projen"
-  ekranı bu yüzden var) ve imza anahtarı hâlâ Expo'nun hata ayıklama anahtarı (aşağıda).
+  ekranı bu yüzden var). İmza 1.0.6'dan beri KENDİ anahtarı (aşağıda "İmza").
 - Commit'lerde Claude ortak yazar satırı YOK (kullanıcı isteği).
 - ⚠️ **Emülatörde senkron oturumu KAPALI** (2026-09-09'dan beri): oradaki kütüphane
   gerçeğin eski kopyası, testler buluta gitmiyor. Oturum açılırsa eski kural geri gelir:
@@ -94,8 +94,14 @@ Dev client'ı sunucuya bağlamak:
 
 **İmza:** `plugins/withReleaseSigning.js`. `~/.gradle/gradle.properties` içinde
 `RESONANCE_UPLOAD_STORE_FILE/…PASSWORD/…KEY_ALIAS/…KEY_PASSWORD` varsa o anahtar,
-yoksa Expo şablonunun hata ayıklama anahtarı (şu anki APK böyle imzalı). ⚠️ Anahtar
-değişirse telefona üzerine kurulamaz → önce kaldırmak gerekir (veri senkrondan döner).
+yoksa Expo şablonunun hata ayıklama anahtarı. ⭐ **2026-11-18'den beri KENDİ anahtarı:**
+`~/.resonance-keys/resonance-release.jks` (alias `resonance`, sertifika SHA-256
+`c8fbe188…bdf15a`, şifre yalnız `~/.gradle/gradle.properties`'te). Kullanıcının telefonu
+kaldırılıp bu anahtarla kuruldu. ⛔ Anahtar KAYBOLURSA güncelleme kurulamaz (yine kaldır-kur)
+→ yedeklenmeli. v1.0.4 ve öncesi (hata ayıklama anahtarı) kuranlar 1.0.6'ya uygulama içinden
+GEÇEMEZ, bir kez kaldırıp kurmaları gerekir.
+**Gradle belleği:** `plugins/withGradleMemory.js` (4 GB / Metaspace 1.5 GB) — 2 GB'ta sürüm
+derlemesi `OutOfMemoryError: Metaspace` ile düştü; prebuild elle yazılanı siliyordu.
 
 **R8:** `app.json` → `expo-build-properties.extraProguardRules`. NewPipe + Rhino sınıfları
 `-keep` — küçültülürse çıkarım SESSİZCE kırılır. Sürüm derlemesinde arama + akış doğrulandı.
@@ -269,10 +275,9 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
   Açılıştan 9 sn sonra bir kez bakar, "bu sürümü atla" `mobile.updateSkip` ayarında.
   Kurulum: `REQUEST_INSTALL_PACKAGES` + FileProvider içerik adresi → paket yükleyici;
   olmazsa yayın sayfası tarayıcıda. Uçtan uca doğrulandı (1.0.0 → 1.0.3 kurulumu).
-  ⚠️ APK Expo'nun HATA AYIKLAMA anahtarıyla imzalı: depo herkese açık olduğu için bu
-  anahtar herkeste var → aynı imzayla APK üreten biri "güncelleme" diye kurdurabilir.
-  Kendi anahtarına geçmek kurulu uygulamaların üzerine yazmayı bozar (önce kaldırmak
-  gerekir) — kullanıcıya sorulacak bir karar.
+  ⚠️ 1.0.4'e kadar APK'lar Expo'nun herkese açık HATA AYIKLAMA anahtarıyla imzalıydı;
+  1.0.6 kendi anahtarıyla (kullanıcı kararı 2026-11-18). Eski kurulumlar 1.0.6'yı
+  uygulama içinden KURAMAZ (paket yükleyici "çakışma" der) → kaldır-kur; yayın notunda yazılı.
 - ⚠️ **Play Protect** sideload'da "App scan recommended" diyor (her kurulum/güncellemede);
   kullanıcı kapatabiliyor, kurulumu engellemiyor.
 - ℹ️ **Ayarlardaki uzun açıklamalar ⓘ arkasında** (`Section info=` / `InfoNote`).
@@ -328,6 +333,49 @@ interop'una takılıyor. Gerekçe ve hata metinleri: `docs/FAZ0-SES-YOLU.md` §4
 - ⚠️ **Emülatörü başka oturum kullanıyor olabilir** (`com.pocket.calc.dev` testi sırasında
   dokunuşlar karıştı) — `dumpsys activity activities | grep topResumedActivity` ile bak; başkası
   öndeyse ekranla etkileşme.
+- ⭐ **v1.0.5 (2026-11, kullanıcı istekleri + Spotify'dan fikirler):** liste adına dokununca yerinde
+  düzenleme (menüdeki "yeniden adlandır" kalktı) · liste sıralama çipleri + "indirilenler" · liste sonunda
+  "bu listeye önerilenler" (`PlaylistSuggestions`, liste radyosuyla aynı kaynak, `recordRecommended` YAZMAZ) ·
+  çalan öneride "listeye ekle" · sırayı temizle / yeniden karıştır · "30 gün önerme" (`lib/snooze.ts`,
+  `songCore` anahtarlı, cihaza özel; `excludeCores` yoluyla tüm önerilere uygulanır) · zaten listedeyse
+  "zaten var" bildirimi · bildirimler ÜSTTE, kaydırarak kapanır (çarpı yok) · açılış animasyonu
+  (`LaunchIntro`) · arama: önce kütüphane (yerel SQL, her tuşta) + 10 dk sorgu
+  önbelleği + ilk sonucun adresini ısıtma (`lib/fastSearch.ts`), bekleme 450 → 300 ms.
+- ⭐ **Kilit ekranında 👍 👎 ⬇** — `patches/` track-player'a media3 özel düğmeleri ekler (LIKE/DISLIKE/BOOKMARK →
+  `remote-like/-dislike/-bookmark`). JS'te bu yetenekler yok: `player.ts` yerel sıra numaralarını (12/13/14)
+  verir. media3'te indirme ikonu YOK → `res/drawable/rntp_download.xml` yamayla eklendi. Android 13+ medya
+  kontrolü önceki/sonraki yanında en çok İKİ özel düğme gösterebilir (üretici arayüzüne bağlı).
+- ⭐ **Masaüstünü telefondan kumanda** (`lib/remoteControl.ts`, `RemoteDeviceBar`): `now_playing` DOĞRUDAN
+  Supabase'ten + Realtime (yerel senkron kopyası geride kalıyor), komut `remote_commands` INSERT; masaüstü
+  v1.9.6+ dinleyicisi uygular. Konum tahmini (`updated_at`'ten beri geçen süre); 3 dk yazılmayan "çalıyor"
+  satırı kapanmış sayılır.
+- ⭐ **v1.0.5 ikinci yarı (araştırma ajanı + Spotify APK incelemesi):** kilit ekranında 👍👎⬇ sonrası kısa
+  titreşim · liste profili: öneri sıklığı (`everyN`), "bu listede önerme" (`blockedCores`, `recommendFor`
+  sonunda süzülür), "listeyi çevrimdışı tut" (`keepOffline` + `resonance.offlineLists` dizini, Wi-Fi işinde
+  eksikler iner) · ana sayfada "Bu saatin şarkıları" (`lib/hourly.ts`) · sözler diske (`Paths.document/lyrics`,
+  yalnız bulunanlar) · başlangıç tamponu 2.5 → 1.5 sn (Spotify) · satıra dokununca adres ısıtma (`onPressIn`,
+  Wi-Fi) · duraklat/devamda 180 ms ses geçişi (`pauseWithFade`/`playWithFade`) · önbellek budamada ≥1 GB boş
+  alan tabanı · `resumeState` gövdesi yalnız değişince, konum `resonance.resumePos`'ta · `presence.publish`
+  kısıtı köprü çağrısından ÖNCE · ilerleme kancaları arka planda 60 sn (`useLiveProgress`) · kumanda
+  yoklaması yalnız öndeyken · `PRAGMA synchronous=NORMAL` · açılış adımları paralel · bekçi takılma sayacı
+  10 dk'da sıfırlanır · kuyruk sonu motorla ayrışınca sürer · ses odağı olayı loglanır · sıradaki önce
+  eklenir sonra eskisi çıkar.
+- ⭐ **Açılış (ikinci hali):** yerel açılış ekranı LOGOSUZ (`assets/splash-blank.png`, şeffaf) ve JS'in
+  ilk çiziminde kapanır; `LaunchIntro` hazırlık BEKLENMEDEN başlar (çubuklar sıfırdan büyür, hazır olana
+  dek dalgalanır, "RESONANCE" harf harf, çıkış). Çubuklar baştan KULLANICININ VURGU RENGİNDE
+  (kullanıcı tercihi; altın → vurgu geçişini beğenmedi) → ayarlar yüklenene kadar (`themeReady`)
+  yalnız zemin görünür. Kök düzen: `booted` olunca
+  `App` çizilir, kaplama her durumda üstte. Ölçüldü (0.25 sn aralıklı ekran görüntüsü, Xiaomi).
+- ⚠️ **`TrackRow` memo'su işlemiyordu** (her çizimde yeni `onPress`/`sheet` kapanışı). Artık
+  `onPressTrack(track)` ve `sheet` işlev olarak verilebilir; liste ve arama ekranları `useCallback` +
+  ref ile SABİT geri çağrı verir. Yeni liste ekranı yazarken bu kalıbı kullan.
+- ⚠️ **Xiaomi'de "geçiş animasyonu ölçeği = 0"** (kullanıcının telefonu) RN/Reanimated'a "hareketi azalt"
+  olarak gelir: `withTiming`/`withDelay`/`withSequence` ANINDA biter. Açılış animasyonu bu yüzden hiç
+  görünmüyordu → `ReduceMotion.Never` (her üçünde ayrı ayrı). Ölçüldü: 0.3 sn aralıklı ekran görüntüleri.
+- ℹ️ **Spotify 9.2 incelemesi** (jadx/apktool; REA CLI Node ≥24.22.1 istiyor, kurulu 24.15): müzik
+  ExoPlayer'da DEĞİL, yerel `liborbit` çekirdeğinde; içerik 512 KB'lık Range okumalarıyla iniyor. Bizde
+  ExoPlayer akışı tek açık uçlu istek → YouTube yavaşlatırsa (~31 KB/s ölçülmüştü) takılma nedeni olabilir.
+  ÖLÇÜLMEDİ; sıradaki iş: çalarken `buffered - position` izlenip gerekirse parçalı veri kaynağı yaması.
 - ℹ️ `outbox` GEREKMEDİ: motor `last_pushed` su terazisiyle öldürülmeye dayanıklı.
 
 ## Özellikler

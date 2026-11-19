@@ -56,6 +56,7 @@ import Pencil from "lucide-react-native/icons/pencil";
 import Play from "lucide-react-native/icons/play";
 import Plus from "lucide-react-native/icons/plus";
 import Radio from "lucide-react-native/icons/radio";
+import EyeOff from "lucide-react-native/icons/eye-off";
 import RefreshCw from "lucide-react-native/icons/refresh-cw";
 import Repeat from "lucide-react-native/icons/repeat";
 import Repeat1 from "lucide-react-native/icons/repeat-1";
@@ -141,6 +142,7 @@ const ICONS = {
   play: Play,
   plus: Plus,
   radio: Radio,
+  eyeOff: EyeOff,
   refresh: RefreshCw,
   repeat: Repeat,
   repeatOne: Repeat1,

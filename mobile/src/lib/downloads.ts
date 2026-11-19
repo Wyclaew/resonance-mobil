@@ -361,8 +361,23 @@ export async function clearTempCache(): Promise<number> {
  * `limitBytes <= 0` = SINIRSIZ (masaüstündeki "0 = sınırsız" anlamı) —
  * ⚠️ BUG'DI: 0 sınır her geçici dosyayı siliyordu.
  */
+/**
+ * Diskte her zaman bırakılacak boş alan (Spotify'daki gibi): sınır "sınırsız" olsa da
+ * telefon dolarsa geçici önbellek budanır. İndirilenlere (downloaded=1) yine dokunulmaz.
+ */
+const MIN_FREE_BYTES = 1024 * 1024 * 1024;
+
+function freeBytes(): number {
+  try {
+    return Paths.availableDiskSpace;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
 export async function pruneCache(limitBytes: number): Promise<{ freed: number; removed: number }> {
-  if (!(limitBytes > 0)) return { freed: 0, removed: 0 };
+  const shortOfSpace = Math.max(0, MIN_FREE_BYTES - freeBytes());
+  if (!(limitBytes > 0) && !shortOfSpace) return { freed: 0, removed: 0 };
   const db = await getDb();
   const rows = await db.select<{ track_id: string; file_path: string; bytes: number }[]>(
     `SELECT track_id, file_path, bytes FROM cache
@@ -370,10 +385,12 @@ export async function pruneCache(limitBytes: number): Promise<{ freed: number; r
   );
   const totalRows = await db.select<{ total: number }[]>(`SELECT COALESCE(SUM(bytes),0) AS total FROM cache`);
   let total = totalRows[0]?.total ?? 0;
+  // Boş alan tabanı: sınırın altına inmek yetmiyorsa eksik alan kadar daha boşalt.
+  const target = Math.max(0, (limitBytes > 0 ? Math.min(limitBytes, total) : total) - shortOfSpace);
   let freed = 0;
   let removed = 0;
   for (const row of rows) {
-    if (total <= limitBytes) break;
+    if (total <= target) break;
     try {
       const file = new File(row.file_path);
       if (file.exists) file.delete();

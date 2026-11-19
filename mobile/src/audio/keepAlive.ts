@@ -35,11 +35,22 @@ let installed = false;
 let wantPlaying = false;
 let since = { state: "" as string, at: 0 };
 let lastPos = { uid: "", pos: -1, at: 0 };
-const stalls = new Map<string, number>();
+/**
+ * Parça başına takılma sayısı. ⛔ BUG'DI: hiç sıfırlanmıyordu → uzun bir mix'te
+ * saatler sonraki ikinci takılma bile parçayı atlatıyordu. Artık parça değişince
+ * ya da son takılmadan 10 dk geçince sıfırdan sayılır.
+ */
+const STALL_FORGET_MS = 10 * 60 * 1000;
+let stall = { uid: "", n: 0, at: 0 };
 
 /** Kullanıcı (ya da uyku zamanlayıcısı) bilerek duraklattı / çalmaya başlattı. */
 export function setWantPlaying(v: boolean): void {
   wantPlaying = v;
+}
+
+/** Kullanıcı şu an çalmak istiyor mu? (kuyruk sonu kurtarması okur) */
+export function wantsPlayback(): boolean {
+  return wantPlaying;
 }
 
 export function installKeepAlive(): void {
@@ -60,6 +71,15 @@ export function installKeepAlive(): void {
       console.log(`[audio] sistem duraklattı (kulaklık/başka uygulama?): ${cur?.title ?? "?"}`);
       wantPlaying = false;
     }
+  });
+
+  // Ses odağı kaybı: Xiaomi'deki "kendi kendine durdu"nun kalan şüphelisi. Önce teşhis:
+  // nedeni loga yaz (hata raporuna girer); geçici kayıpta devam zaten track-player'da.
+  TrackPlayer.addEventListener(Event.RemoteDuck, ({ paused, permanent }) => {
+    const cur = usePlayerStore.getState().current;
+    console.log(
+      `[audio] ses odağı ${paused ? (permanent ? "KALICI kaybedildi" : "geçici kaybedildi") : "geri geldi"}: ${cur?.title ?? "?"}`
+    );
   });
 
   setInterval(() => void tick(), CHECK_MS);
@@ -109,8 +129,9 @@ async function recover(uid: string, why: string): Promise<void> {
   const store = usePlayerStore.getState();
   const cur = store.current;
   if (!cur || cur.uid !== uid) return;
-  const n = (stalls.get(uid) ?? 0) + 1;
-  stalls.set(uid, n);
+  const now = Date.now();
+  const n = stall.uid === uid && now - stall.at < STALL_FORGET_MS ? stall.n + 1 : 1;
+  stall = { uid, n, at: now };
   since = { state: "recovering", at: Date.now() };
   lastPos = { uid: "", pos: -1, at: 0 };
   const { position } = await TrackPlayer.getProgress().catch(() => ({ position: 0 }));

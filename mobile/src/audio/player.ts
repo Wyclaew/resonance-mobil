@@ -17,6 +17,12 @@ import { bestThumb } from "../lib/thumbs";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { getPalette } from "../theme";
 import type { QueueItem, Track } from "../types";
+
+// Yerel `Capability` enum sıra numaraları (kotlinaudio/models/Capability.kt).
+const NOTIFICATION_LIKE = 12 as Capability;
+const NOTIFICATION_DISLIKE = 13 as Capability;
+const NOTIFICATION_DOWNLOAD = 14 as Capability;
+import { setWantPlaying } from "./keepAlive";
 import { invalidateUrl, resolveCached } from "./urlCache";
 
 /**
@@ -57,6 +63,42 @@ export async function dropPrepared(): Promise<void> {
  */
 let gain = 1;
 export const currentGain = () => gain;
+
+/**
+ * Kullanıcı duraklat/devam ederken kısa ses geçişi (Spotify'da `pause_fade_time_ms`):
+ * ses aniden kesilip patlamasın. Hedef `gain` → ses eşitlemesi bozulmaz.
+ * Uyku zamanlayıcısı sesi tutarken (holdVolume) dokunulmaz.
+ */
+const FADE_MS = 180;
+const FADE_STEPS = 6;
+
+async function ramp(from: number, to: number): Promise<void> {
+  for (let i = 1; i <= FADE_STEPS; i++) {
+    await TrackPlayer.setVolume(from + ((to - from) * i) / FADE_STEPS);
+    await new Promise((r) => setTimeout(r, FADE_MS / FADE_STEPS));
+  }
+}
+
+export async function pauseWithFade(): Promise<void> {
+  if (volumeHeld) return TrackPlayer.pause();
+  try {
+    await ramp(gain, 0);
+  } finally {
+    await TrackPlayer.pause();
+    await TrackPlayer.setVolume(gain);
+  }
+}
+
+export async function playWithFade(): Promise<void> {
+  if (volumeHeld) return TrackPlayer.play();
+  await TrackPlayer.setVolume(0);
+  await TrackPlayer.play();
+  try {
+    await ramp(0, gain);
+  } catch {
+    await TrackPlayer.setVolume(gain);
+  }
+}
 
 /** Uyku zamanlayıcısı sesi kısarken kazanç uygulanmasın. */
 let volumeHeld = false;
@@ -111,7 +153,9 @@ export async function setupAudio(): Promise<void> {
       // Ağ hıçkırıklarına dayanıklılık: 2 dk'ya kadar önden tampon (~2.4 MB Opus).
       minBuffer: 30,
       maxBuffer: 120,
-      playBuffer: 2.5,
+      // Spotify'ın oynatıcısı 1.5 sn tamponla başlıyor (APK incelemesi, 2026-11):
+      // ilk sesin gelmesi ~1 sn erken; takılma riski minBuffer (30 sn) ile zaten düşük.
+      playBuffer: 1.5,
     } as Parameters<typeof TrackPlayer.setupPlayer>[0]);
   } catch (e) {
     // "player already initialized" — sıcak yeniden yüklemede normal.
@@ -140,12 +184,18 @@ export async function setupAudio(): Promise<void> {
       Capability.Stop,
       Capability.SetRating,
     ],
+    // ⭐ Kilit ekranında 👍 👎 ⬇ (kullanıcı isteği 2026-11). track-player'ın JS
+    // tarafında bu yetenekler yok; yerel sıra numaraları `patches/` ile eklenen
+    // media3 özel düğmelerine karşılık gelir. Android 13+ medya kontrolünde
+    // önceki/sonraki yanında en çok İKİ özel düğme görünür → sıra önemli.
     notificationCapabilities: [
       Capability.Play,
       Capability.Pause,
       Capability.SkipToNext,
       Capability.SkipToPrevious,
-      Capability.SetRating,
+      NOTIFICATION_LIKE,
+      NOTIFICATION_DISLIKE,
+      NOTIFICATION_DOWNLOAD,
     ],
     color: parseInt(getPalette().accent.slice(1), 16),
     progressUpdateEventInterval: 1,
@@ -269,7 +319,12 @@ export async function startItem(
   if (opts.startMs && opts.startMs > 0) await TrackPlayer.seekTo(opts.startMs / 1000);
   if (mine !== loadToken) return false;
   if (opts.autoplay === false) await TrackPlayer.pause();
-  else await TrackPlayer.play();
+  else {
+    // `reset()` "durdu" olayı üretip bekçinin niyetini düşürebiliyor; parça hiç
+    // "çalıyor"a geçmezse (takılma) bekçi devre dışı kalırdı → niyet burada tazelenir.
+    setWantPlaying(true);
+    await TrackPlayer.play();
+  }
   console.log(`[audio] ${opts.autoplay === false ? "hazır" : "çalıyor"}: ${item.title} (${local ? "yerel dosya" : "akış"})`);
   return true;
 }
@@ -297,8 +352,16 @@ export async function prepareUpcoming(next: { item: QueueItem; index: number } |
     const { url } = await withTimeout(sourceFor(next.item), 20_000, "sıradaki adres");
     // Bu arada parça değiştiyse eski hazırlığı ekleme.
     if (mine !== loadToken || loadedUid !== owner) return;
-    await TrackPlayer.removeUpcomingTracks();
+    // Önce EKLE, sonra eskiyi çıkar: arada çalan biterse kuyruk boş kalıp yavaş
+    // yola (kuyruk sonu → yeniden yükleme, 2-3 sn sessizlik) düşmesin.
     await TrackPlayer.add(toRntp(next.item, url));
+    const queue = await TrackPlayer.getQueue();
+    const active = await TrackPlayer.getActiveTrackIndex();
+    const stale = queue
+      .map((t, i) => ({ id: t.id as string, i }))
+      .filter(({ id, i }) => i > (active ?? 0) && id !== next.item.uid)
+      .map(({ i }) => i);
+    if (stale.length) await TrackPlayer.remove(stale);
     prepared = { uid: next.item.uid, index: next.index };
     console.log(`[audio] sıradaki hazır: ${next.item.title}`);
   } catch (e) {

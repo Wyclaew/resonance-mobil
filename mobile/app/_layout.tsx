@@ -20,7 +20,9 @@ import { BarMark } from "../src/components/BarMark";
 import { MiniPlayer } from "../src/components/MiniPlayer";
 import { Toasts } from "../src/components/Toasts";
 import { PlaylistStyleSheet } from "../src/components/PlaylistStyleSheet";
+import { LaunchIntro } from "../src/components/LaunchIntro";
 import { PortalHost } from "../src/components/Portal";
+import { RemoteDeviceBar } from "../src/components/RemoteDeviceBar";
 import { TrackSheet } from "../src/components/TrackSheet";
 import { UpdateDialog } from "../src/components/UpdateDialog";
 import { VersionSheet } from "../src/components/VersionSheet";
@@ -42,10 +44,11 @@ import { buildPalette, themeVars, useColors } from "../src/theme";
 // Hata raporu için son hata/uyarıları topla — her şeyden ÖNCE (açılış hataları da girsin).
 installErrorCapture();
 
-// Sistem açılış ekranı (koyu zemin + logo) veritabanı ve yazı tipleri hazır
-// olana kadar kalır → siyah boşluk ya da yarım çizilmiş ekran görünmez.
+// Sistem açılış ekranı artık logosuz (yalnız koyu zemin, `splash-blank.png`) ve JS'in
+// İLK çiziminde kapanır: logo animasyonu (`LaunchIntro`) hemen başlar, uygulama
+// hazırlanırken o oynar. Eskiden sabit logo hazır olana kadar duruyordu.
 void SplashScreen.preventAutoHideAsync().catch(() => {});
-SplashScreen.setOptions({ fade: true, duration: 220 });
+SplashScreen.setOptions({ fade: true, duration: 150 });
 
 /**
  * Açılış sırası ÖNEMLİ:
@@ -59,6 +62,7 @@ SplashScreen.setOptions({ fade: true, duration: 220 });
 export default function RootLayout() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [themeReady, setThemeReady] = useState(false);
   // Archivo = başlık sesi, Inter = gövde (masaüstüyle ortak),
   // JetBrains Mono = veri (karma, süre, gerekçe).
   const [fontsReady] = useFonts({
@@ -82,11 +86,12 @@ export default function RootLayout() {
     (async () => {
       try {
         installWebShims();
-        await hydrateLocalStorage();
-        await initDeviceId();
-        await getDb();
-        await useSettingsStore.getState().load();
-        await loadMobileSettings();
+        // Birbirinden bağımsız adımlar paralel (açılış süresi): depo ön yükleme, cihaz
+        // kimliği ve veritabanı (migration). Ayarlar veritabanını, ses ayarları bekler.
+        await Promise.all([hydrateLocalStorage(), initDeviceId(), getDb()]);
+        await Promise.all([useSettingsStore.getState().load(), loadMobileSettings()]);
+        // Tema/vurgu artık belli → açılış animasyonu kullanıcının renginde başlayabilir.
+        setThemeReady(true);
         await setupAudio();
         installPlaybackState();
         installAutoAdvance();
@@ -107,8 +112,8 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if ((ready && fontsReady) || error) void SplashScreen.hideAsync().catch(() => {});
-  }, [ready, fontsReady, error]);
+    void SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
   if (error) {
     return (
@@ -122,15 +127,17 @@ export default function RootLayout() {
     );
   }
 
-  if (!ready || !fontsReady) {
-    // Marka işareti nefes alır — boş siyah ekran yerine "açılıyor".
-    return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: colors.bg }}>
-        <BarMark size={34} alive color={colors.accent} />
-      </View>
-    );
-  }
+  const booted = ready && fontsReady;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {booted ? <App colors={colors} /> : null}
+      {/* Açılış animasyonu hazırlık sırasında da oynar; hazır olunca kendini kapatır. */}
+      <LaunchIntro themeReady={themeReady || !!error} ready={booted} />
+    </View>
+  );
+}
 
+function App({ colors }: { colors: ReturnType<typeof useColors> }) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View className="bg-bg flex-1" style={themeVars(colors)}>
@@ -149,6 +156,7 @@ export default function RootLayout() {
           <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
         </Stack>
         <MiniPlayer />
+        <RemoteDeviceBar />
         <AddToPlaylistSheet />
         <TrackSheet />
         <VersionSheet />

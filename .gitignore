@@ -24,3 +24,5 @@ mobile/modules/*/android/.gradle/
 **/.claude/ctx-journal.md
 **/.claude/context-ledger.md
 **/.claude/ctx-spill/
+# Oturuma özel kopyalanan skill'ler (depo içeriği değil)
+.claude/skills/

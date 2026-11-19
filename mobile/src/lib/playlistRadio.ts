@@ -6,6 +6,7 @@ import { getDb } from "./db";
 import { queriesFor } from "./filters";
 import { artistScore, getProfile, hasStyle, type PlaylistProfile } from "./playlistProfile";
 import { getMobileSettings } from "./mobileSettings";
+import { snoozedCores } from "./snooze";
 import {
   getRecommendations,
   isLikelySong,
@@ -59,6 +60,14 @@ export function isRealPlaylist(id: string | null | undefined): id is string {
  * çok küçük liste) genel motora düşülür ki kuyruk boşalıp müzik durmasın.
  */
 export async function recommendFor(opts: RecommendOpts): Promise<Recommendation[]> {
+  const recs = await recommendForInner(opts);
+  if (!isRealPlaylist(opts.playlistId)) return recs;
+  // "Bu listede önerme" (liste profili) — hangi yoldan gelirse gelsin süz.
+  const blocked = new Set(getProfile(opts.playlistId).blockedCores);
+  return blocked.size ? recs.filter((r) => !blocked.has(songCore(r.title, r.artist))) : recs;
+}
+
+async function recommendForInner(opts: RecommendOpts): Promise<Recommendation[]> {
   if (isRealPlaylist(opts.playlistId)) {
     const styled = hasStyle(getProfile(opts.playlistId));
     if (styled || getMobileSettings().playlistRadio) {
@@ -82,6 +91,11 @@ export async function recommendFor(opts: RecommendOpts): Promise<Recommendation[
     }
   }
   return getRecommendations(opts);
+}
+
+/** Liste sayfasındaki "bu listeye önerilenler": radyoyla aynı kaynak, genel motora düşmez. */
+export function suggestForPlaylist(playlistId: string, excludeIds: Set<string>, limit: number): Promise<Recommendation[]> {
+  return playlistRecommendations(playlistId, excludeIds, snoozedCores(), limit);
 }
 
 async function playlistRecommendations(

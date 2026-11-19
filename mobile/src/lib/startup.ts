@@ -18,7 +18,9 @@ import { usePlaylistStore } from "../store/usePlaylistStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { useToastStore } from "../store/useToastStore";
 import { useUpdate } from "../store/useUpdate";
-import type { Track } from "../types";
+import type { PlaylistTrack, Track } from "../types";
+import * as pl from "./playlists";
+import { offlineListIds } from "./playlistProfile";
 
 /**
  * Açılıştan SONRA arka planda koşan işler (masaüstü App.tsx açılış bloğunun
@@ -114,9 +116,24 @@ async function wifiTasks(): Promise<void> {
     const relinked = await auditRelinks().catch(() => 0);
     if (relinked) void usePlaylistStore.getState().refresh();
     await autoDownloadTop();
+    await fillOfflineLists();
   } catch (e) {
     console.warn("[açılış] arka plan işleri:", e);
   }
+}
+
+/** "Çevrimdışı tut" işaretli listelerin eksik şarkıları (sonradan eklenenler) Wi-Fi'da insin. */
+async function fillOfflineLists(): Promise<void> {
+  const ids = offlineListIds();
+  if (!ids.length) return;
+  const downloaded = useDownloadStore.getState().downloaded;
+  let queued = 0;
+  for (const id of ids) {
+    const tracks = await pl.getPlaylistTracks(id).catch(() => [] as PlaylistTrack[]);
+    const missing = tracks.filter((t) => t.source !== "local" && !downloaded.has(t.id));
+    if (missing.length) queued += await useDownloadStore.getState().enqueueMany(missing);
+  }
+  if (queued) console.log(`[açılış] çevrimdışı listeler: ${queued} parça kuyruğa alındı`);
 }
 
 /** En çok dinlenen N parçayı çevrimdışına al (Ayarlar → Otomatik indirme). */

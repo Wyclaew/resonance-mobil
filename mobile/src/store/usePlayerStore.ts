@@ -17,6 +17,8 @@ import { noteListen } from "../lib/mood";
 import { PREF_MORE, setArtistPref } from "../lib/prefs";
 import { getProfile, noteListen as noteListInListen } from "../lib/playlistProfile";
 import { isRealPlaylist, recommendFor } from "../lib/playlistRadio";
+import { snoozedCores } from "../lib/snooze";
+import { newerResumePosition } from "../lib/resumePos";
 import { onRelinked } from "../lib/relink";
 import { onMetaFilled } from "../lib/repairTracks";
 import {
@@ -98,6 +100,8 @@ interface PlayerState {
   jumpTo: (index: number) => Promise<void>;
   removeFromQueue: (uid: string) => void;
   moveInQueue: (from: number, to: number) => void;
+  clearUpcoming: () => void;
+  reshuffleUpcoming: () => void;
   /** Sıraya ekle: hemen sonra ya da en sona. */
   enqueue: (track: QueueSource, where: "next" | "end") => void;
   cycleShuffle: () => void;
@@ -554,6 +558,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   async function fetchAndInterleave(playlistId: string, extraExclude: string[] = []): Promise<void> {
     if (!recsAllowed()) return;
     const s = useSettingsStore.getState();
+    // Liste profili kendi sıklığını verebilir ("bu listede her 2 şarkıda bir öneri").
+    const everyN = getProfile(playlistId).everyN || s.recEveryN;
     const st = get();
     const remaining = Math.max(1, st.queue.length - st.index);
     try {
@@ -561,7 +567,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         playlistId,
         excludeIds: new Set([...extraExclude, ...st.queue.map((i) => i.id), ...st.skippedRecIds, ...recommendedThisSession]),
         excludeCores: buildExcludeCores(),
-        limit: Math.max(2, Math.min(TARGET_QUEUE_AHEAD, Math.ceil(remaining / s.recEveryN) + 1)),
+        limit: Math.max(2, Math.min(TARGET_QUEUE_AHEAD, Math.ceil(remaining / everyN) + 1)),
         useYouTube: s.recYouTube,
         useLibrary: s.recLibrary,
         halfLifeDays: s.karmaHalfLifeDays,
@@ -572,11 +578,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       if (!cur.radioActive || cur.radioPlaylistId !== playlistId) return;
       const q = [...cur.queue];
       const recItems = spreadByArtist(recs).map((r) => toRecItem(r, playlistId));
-      let insertAt = cur.index + s.recEveryN + 1;
+      let insertAt = cur.index + everyN + 1;
       let ri = 0;
       while (ri < recItems.length && insertAt <= q.length) {
         q.splice(insertAt, 0, recItems[ri++]);
-        insertAt += s.recEveryN + 1;
+        insertAt += everyN + 1;
       }
       while (ri < recItems.length) q.push(recItems[ri++]);
       set({ queue: q });
@@ -871,7 +877,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       const state = (await TrackPlayer.getPlaybackState()).state;
       if (state === State.Playing || state === State.Buffering || state === State.Loading) {
         setWantPlaying(false);
-        await TrackPlayer.pause();
+        await engine.pauseWithFade();
       } else {
         // Oynatıcı hata/son durumundaysa play() sessizce hiçbir şey yapmaz.
         if (state === State.Error || state === State.Ended || state === State.None) {
@@ -879,7 +885,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
           await startAt(st.index, { startMs: state === State.Ended ? 0 : Math.round(position * 1000) });
           return;
         }
-        await TrackPlayer.play();
+        setWantPlaying(true);
+        await engine.playWithFade();
       }
     },
 
@@ -962,6 +969,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       nq.splice(to, 0, moved);
       const found = current ? nq.findIndex((i) => i.uid === current.uid) : -1;
       set({ queue: nq, index: found >= 0 ? found : index });
+      prepareNext();
+    },
+
+    clearUpcoming: () => {
+      const { queue, index } = get();
+      set({ queue: queue.slice(0, index + 1) });
+      plannedShuffle = null;
+      prepareNext();
+    },
+
+    reshuffleUpcoming: () => {
+      const { queue, index } = get();
+      set({ queue: [...queue.slice(0, index + 1), ...shuffleArray(queue.slice(index + 1))] });
+      plannedShuffle = null;
       prepareNext();
     },
 
@@ -1095,6 +1116,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
           shuffleMode?: ShuffleMode;
           repeat?: RepeatMode;
         };
+        // Gövdeden sonra yazılan daha yeni konum (yalnız konum değiştiyse gövde yazılmıyor).
+        const savedCurrentId = saved.queue?.[saved.queueIndex ?? 0]?.id ?? saved.track?.id;
+        const newer = newerResumePosition(savedCurrentId, saved.savedAt ?? 0);
+        if (newer !== null) saved.positionMs = newer;
         const age = saved.savedAt ? `${Math.round((Date.now() - saved.savedAt) / 60_000)} dk önce` : "zamanı bilinmiyor";
         if (saved.mode === "discovery") {
           if (!saved.queue?.length) return;
@@ -1241,7 +1266,7 @@ function rememberRecs(recs: Pick<Recommendation, "id" | "title" | "artist">[]): 
 
 /** Bu oturumda önerilenler + kuyrukta olanların şarkı çekirdekleri. */
 function buildExcludeCores(): Set<string> {
-  const cores = new Set(recommendedCoresThisSession);
+  const cores = new Set([...recommendedCoresThisSession, ...snoozedCores()]);
   for (const it of usePlayerStore.getState().queue) cores.add(songCore(it.title, it.artist));
   return cores;
 }

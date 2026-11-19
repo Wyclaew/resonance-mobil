@@ -1,7 +1,9 @@
+import { Vibration } from "react-native";
 import TrackPlayer, { Event } from "react-native-track-player";
 
 import { voteCurrent } from "../lib/vote";
 import { setWantPlaying } from "./keepAlive";
+import { useDownloadStore } from "../store/useDownloadStore";
 import { usePlayerStore } from "../store/usePlayerStore";
 
 /**
@@ -25,6 +27,19 @@ async function safely(label: string, fn: () => Promise<unknown> | unknown) {
 }
 
 const player = () => usePlayerStore.getState();
+
+/**
+ * Kilit ekranından basılan 👍 👎 ⬇ sessiz kalmasın: kısa titreşim. Bildirim (toast) bu
+ * bağlamda görünmeyebilir (ekran kilitli / uygulama arka planda).
+ */
+const CONFIRM_VIBRATION_MS = 35;
+function confirmTap(): void {
+  try {
+    Vibration.vibrate(CONFIRM_VIBRATION_MS);
+  } catch {
+    /* titreşim yoksa önemli değil */
+  }
+}
 
 export async function PlaybackService() {
   TrackPlayer.addEventListener(Event.RemotePlay, () => safely("play", () => player().toggle()));
@@ -50,6 +65,16 @@ export async function PlaybackService() {
   // track-player'da; burada ayrıca ele almak duraklatılmış müziği geri açıyordu.
   // Kilit ekranı / bildirim oyu — arayüzdeki oyla AYNI yoldan geçer
   // (`vote.ts`), yoksa oy sessizce öğrenmeye katılmazdı.
-  TrackPlayer.addEventListener(Event.RemoteLike, () => safely("like", () => voteCurrent(1)));
-  TrackPlayer.addEventListener(Event.RemoteDislike, () => safely("dislike", () => voteCurrent(-1)));
+  TrackPlayer.addEventListener(Event.RemoteLike, () => safely("like", () => voteCurrent(1).then(confirmTap)));
+  TrackPlayer.addEventListener(Event.RemoteDislike, () => safely("dislike", () => voteCurrent(-1).then(confirmTap)));
+  // Kilit ekranındaki ⬇ düğmesi (yerel adı "bookmark"): çalan parçayı indir.
+  TrackPlayer.addEventListener(Event.RemoteBookmark, () =>
+    safely("download", async () => {
+      const track = player().current;
+      if (track && track.source !== "local") {
+        await useDownloadStore.getState().enqueue(track);
+        confirmTap();
+      }
+    })
+  );
 }

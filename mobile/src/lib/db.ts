@@ -56,7 +56,9 @@ export async function closeDb(): Promise<void> {
 async function open(): Promise<DbLike> {
   const db = await SQLite.openDatabaseAsync(DB_NAME);
   rawDb = db;
-  await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  // synchronous=NORMAL: WAL ile güvenli (çökmede son işlem kaybolabilir, veri bozulmaz);
+  // sık küçük yazmalar (oy, geçmiş, ayar) her seferinde fsync beklemesin.
+  await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;");
   await migrate(db);
 
   await installSyncGuards(db);

@@ -11,7 +11,7 @@ import { useToastStore } from "../store/useToastStore";
 import { useColors } from "../theme";
 import { Icon } from "./Icon";
 import { Sheet } from "./Sheet";
-import { Button, Chip, Eyebrow, Toggle } from "./ui";
+import { Button, Chip, Eyebrow, Segmented, Toggle } from "./ui";
 
 /** Hazır serbest tarz önerileri — paylaşılan filtre listesinde olmayan sık türler. */
 const STYLE_SUGGESTIONS = ["phonk", "drift phonk", "hardstyle", "gym motivation", "lo-fi", "techno", "drill", "synthwave"];
@@ -42,6 +42,9 @@ export function PlaylistStyleSheet() {
   const [styles, setStyles] = useState<string[]>([]);
   const [isolate, setIsolate] = useState(true);
   const [artists, setArtists] = useState<Record<string, number>>({});
+  const [everyN, setEveryN] = useState(0);
+  const [blockedCount, setBlockedCount] = useState(0);
+  const [clearBlocked, setClearBlocked] = useState(false);
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
@@ -51,6 +54,9 @@ export function PlaylistStyleSheet() {
     setStyles(p.styles);
     setIsolate(p.isolate);
     setArtists(p.artists);
+    setEveryN(p.everyN);
+    setBlockedCount(p.blockedCores.length);
+    setClearBlocked(false);
     setDraft("");
   }, [playlist]);
 
@@ -72,7 +78,7 @@ export function PlaylistStyleSheet() {
   function save() {
     if (!playlist) return;
     const id = playlist.id;
-    updateProfile(id, { filters, styles, isolate, artists });
+    updateProfile(id, { filters, styles, isolate, artists, everyN, ...(clearBlocked ? { blockedCores: [] } : {}) });
     hapticSuccess();
     // Bu liste şu an önerili çalıyorsa sıradaki öneriler yeni tarzla hemen yenilensin.
     const live = usePlayerStore.getState().restylePlaylist(id);
@@ -148,6 +154,29 @@ export function PlaylistStyleSheet() {
           </View>
           <Toggle value={isolate} onChange={setIsolate} />
         </View>
+
+        <View className="mb-2 mt-5">
+          <Eyebrow>{t("m.plStyle.frequency")}</Eyebrow>
+        </View>
+        <Segmented
+          options={[
+            { value: 0, label: t("m.plStyle.freqDefault") },
+            { value: 6, label: t("m.plStyle.freqLow") },
+            { value: 4, label: t("m.plStyle.freqMid") },
+            { value: 2, label: t("m.plStyle.freqHigh") },
+          ]}
+          value={everyN}
+          onChange={setEveryN}
+        />
+
+        {blockedCount && !clearBlocked ? (
+          <View className="mt-4 flex-row items-center">
+            <Text className="text-muted flex-1 text-[12px]">{t("m.plStyle.blocked", { n: blockedCount })}</Text>
+            <Pressable onPress={() => setClearBlocked(true)} hitSlop={8}>
+              <Text className="text-muted text-[12px] underline">{t("m.plStyle.reset")}</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {liked.length || skipped.length ? (
           <View className="bg-surface-2 mt-5 rounded-2xl p-3.5">

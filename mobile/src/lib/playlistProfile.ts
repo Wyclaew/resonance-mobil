@@ -24,10 +24,28 @@ export interface PlaylistProfile {
   styles: string[];
   isolate: boolean;
   artists: Record<string, number>;
+  /** Önerili karışıkta kaç şarkıda bir öneri (0 = genel ayar `recEveryN`). */
+  everyN: number;
+  /** "Bu listede önerme" denen şarkılar (`songCore`); yalnız bu listenin önerilerinden çıkar. */
+  blockedCores: string[];
+  /** Wi-Fi'da eksik şarkıları kendiliğinden indir (listeyi çevrimdışı tut). */
+  keepOffline: boolean;
 }
 
 const PREFIX = "resonance.plProfile.";
-const DEFAULT: PlaylistProfile = { filters: [], styles: [], isolate: true, artists: {} };
+const DEFAULT: PlaylistProfile = {
+  filters: [],
+  styles: [],
+  isolate: true,
+  artists: {},
+  everyN: 0,
+  blockedCores: [],
+  keepOffline: false,
+};
+/** Liste başına "bu listede önerme" üst sınırı (en eskisi düşer). */
+const MAX_BLOCKED = 300;
+/** Çevrimdışı tutulan listelerin dizini (açılış işi profilleri tek tek taramasın). */
+const OFFLINE_INDEX = "resonance.offlineLists";
 /** Öğrenilen puan sınırı — tek bir sanatçı listeyi ele geçirmesin. */
 const SCORE_CAP = 5;
 
@@ -38,16 +56,19 @@ function storage(): Storage | null {
 function read(id: string): PlaylistProfile {
   try {
     const raw = storage()?.getItem(PREFIX + id);
-    if (!raw) return { ...DEFAULT, artists: {} };
+    if (!raw) return { ...DEFAULT, artists: {}, blockedCores: [] };
     const p = JSON.parse(raw) as Partial<PlaylistProfile>;
     return {
       filters: Array.isArray(p.filters) ? p.filters : [],
       styles: Array.isArray(p.styles) ? p.styles : [],
       isolate: p.isolate !== false,
       artists: p.artists && typeof p.artists === "object" ? p.artists : {},
+      everyN: typeof p.everyN === "number" && p.everyN > 0 ? p.everyN : 0,
+      blockedCores: Array.isArray(p.blockedCores) ? p.blockedCores : [],
+      keepOffline: p.keepOffline === true,
     };
   } catch {
-    return { ...DEFAULT, artists: {} };
+    return { ...DEFAULT, artists: {}, blockedCores: [] };
   }
 }
 
@@ -100,4 +121,35 @@ export function noteListen(id: string, artist: string, ratio: number, skipped: b
 /** Sanatçının bu listedeki öğrenilmiş puanı (yoksa 0). */
 export function artistScore(p: PlaylistProfile, artist: string): number {
   return p.artists[artist.trim().toLowerCase()] ?? 0;
+}
+
+/** "Bu listede önerme": şarkı çekirdeğini listenin engel listesine ekler. */
+export function blockInPlaylist(id: string, core: string): void {
+  const p = getProfile(id);
+  if (p.blockedCores.includes(core)) return;
+  updateProfile(id, { blockedCores: [...p.blockedCores, core].slice(-MAX_BLOCKED) });
+}
+
+export function unblockInPlaylist(id: string, core: string): void {
+  const p = getProfile(id);
+  updateProfile(id, { blockedCores: p.blockedCores.filter((c) => c !== core) });
+}
+
+export function offlineListIds(): string[] {
+  try {
+    const parsed = JSON.parse(storage()?.getItem(OFFLINE_INDEX) ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setKeepOffline(id: string, on: boolean): void {
+  updateProfile(id, { keepOffline: on });
+  const ids = offlineListIds().filter((x) => x !== id);
+  try {
+    storage()?.setItem(OFFLINE_INDEX, JSON.stringify(on ? [...ids, id] : ids));
+  } catch (e) {
+    console.warn("[liste profili] çevrimdışı dizini yazılamadı:", e);
+  }
 }

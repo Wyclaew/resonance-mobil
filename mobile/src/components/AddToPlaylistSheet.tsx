@@ -52,11 +52,25 @@ export function AddToPlaylistSheet() {
       for (const tr of tracks) {
         if (await usePlaylistStore.getState().addTrack(playlistId, tr)) added++;
       }
+      const already = tracks.length - added;
+      if (!added) {
+        // Kullanıcı isteği: zaten listedeyse sessizce "eklendi" deme.
+        show(
+          tracks.length === 1
+            ? t("m.addTo.alreadyIn", { name: playlistName })
+            : t("m.addTo.allAlreadyIn", { name: playlistName }),
+          "info"
+        );
+        close();
+        return;
+      }
       hapticSuccess();
       show(
         tracks.length === 1
           ? t("toast.addedToPlaylist", { name: playlistName })
-          : t("discover.saveQueueDone", { count: added, name: playlistName }),
+          : already
+            ? t("m.addTo.someAlreadyIn", { count: added, skipped: already, name: playlistName })
+            : t("discover.saveQueueDone", { count: added, name: playlistName }),
         "success"
       );
       close();

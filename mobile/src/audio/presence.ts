@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 
 import { publishDeviceQueue } from "../lib/deviceQueue";
 import { publishNowPlaying } from "../lib/nowPlaying";
+import { saveResumePosition } from "../lib/resumePos";
 import { DISCOVERY_ID, usePlayerStore } from "../store/usePlayerStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import type { QueueItem } from "../types";
@@ -26,6 +27,8 @@ let lastSave = 0;
 let lastPosition = 0;
 /** Kuyruk değişmedikçe JSON yeniden üretilmez (uzun listede her yazmada 60 KB olmasın). */
 let bodyCache: { queue: QueueItem[]; index: number; radio: string; json: string } | null = null;
+/** En son tam yazılan gövde — değişmediyse yalnız konum yazılır (`resumePos.ts`). */
+let lastBody = "";
 
 const SAVE_EVERY_MS = 10_000;
 /** Normal kuyrukta saklanan pencere: çalanın 10 öncesi, 90 sonrası. */
@@ -113,13 +116,17 @@ async function publish(positionMs: number, force: boolean): Promise<void> {
   const st = usePlayerStore.getState();
   if (!st.current) return;
   const now = Date.now();
-  if (force || now - lastSave >= SAVE_EVERY_MS) {
-    lastSave = now;
-    const body = resumeBody();
-    if (body) {
-      const payload = `${body.slice(0, -1)},"positionMs":${positionMs},"savedAt":${now}}`;
-      void useSettingsStore.getState().update("resumeState", payload);
-    }
+  // İlerleme olaylarının çoğu burada biter (köprü çağrısı yapılmadan). now_playing /
+  // device_queue zaten kendi 15/20 sn kısıtlarını uyguluyor.
+  if (!force && now - lastSave < SAVE_EVERY_MS) return;
+  lastSave = now;
+  const body = resumeBody();
+  if (body && (force || body !== lastBody)) {
+    lastBody = body;
+    const payload = `${body.slice(0, -1)},"positionMs":${positionMs},"savedAt":${now}}`;
+    void useSettingsStore.getState().update("resumeState", payload);
+  } else {
+    saveResumePosition(st.current.id, positionMs);
   }
   try {
     const playing = (await TrackPlayer.getPlaybackState()).state === State.Playing;

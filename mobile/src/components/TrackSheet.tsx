@@ -12,7 +12,11 @@ import { usePlayerStore } from "../store/usePlayerStore";
 import { usePlaylistStore } from "../store/usePlaylistStore";
 import { useToastStore } from "../store/useToastStore";
 import { useVersionPicker } from "../store/useVersionPicker";
-import type { Track } from "../types";
+import { blockInPlaylist, unblockInPlaylist } from "../lib/playlistProfile";
+import { isRealPlaylist } from "../lib/playlistRadio";
+import { songCore } from "../lib/recommender";
+import { snoozedUntil, snoozeSong, unsnoozeSong } from "../lib/snooze";
+import type { QueueItem, Track } from "../types";
 import { useAddToPlaylist } from "./AddToPlaylistSheet";
 import { HourBars } from "./Charts";
 import { Sheet, SheetAction } from "./Sheet";
@@ -27,6 +31,11 @@ export interface TrackSheetContext {
   queueUid?: string;
   /** Liste satırından oy (masaüstünde her satırda KarmaControl vardı). */
   onVote?: (dir: 1 | -1) => void;
+  /** Öneri satırında "30 gün önerme" (çalan/sıradaki öneride kendiliğinden görünür). */
+  snooze?: boolean;
+  onSnoozed?: () => void;
+  /** Öneri hangi liste için geldi ("bu listede önerme" o listeye yazılır). */
+  suggestedFor?: string;
 }
 
 interface SheetState {
@@ -73,6 +82,10 @@ export function TrackSheet() {
     void fn();
   };
   const realPlaylist = ctx.playlistId && !ctx.playlistId.startsWith("__") && !ctx.playlistId.includes(":");
+  // Öneri bir listenin akıllı karışığından geldiyse o listede bir daha önerilmesin.
+  const radioList = usePlayerStore.getState().radioPlaylistId;
+  const fromRadio = (track as QueueItem).isRecommendation && isRealPlaylist(radioList) ? radioList : null;
+  const blockList = ctx.suggestedFor ?? fromRadio;
 
   return (
     <Sheet visible onClose={close} scroll>
@@ -165,6 +178,44 @@ export function TrackSheet() {
           icon="minus"
           label={t("queue.remove")}
           onPress={run(() => usePlayerStore.getState().removeFromQueue(ctx.queueUid!))}
+        />
+      ) : null}
+      {ctx.snooze || (track as QueueItem).isRecommendation ? (
+        <SheetAction
+          icon="eyeOff"
+          label={t("m.snooze.action")}
+          sub={t("m.snooze.sub")}
+          onPress={run(() => {
+            const previous = snoozedUntil(track.title, track.artist);
+            snoozeSong(track.title, track.artist);
+            const st = usePlayerStore.getState();
+            if (ctx.queueUid) st.removeFromQueue(ctx.queueUid);
+            else if (st.current?.id === track.id) void st.next("next");
+            ctx.onSnoozed?.();
+            useToastStore.getState().show(t("m.snooze.done"), "info", {
+              label: t("player.undo"),
+              fn: () => unsnoozeSong(track.title, track.artist, previous),
+            });
+          })}
+        />
+      ) : null}
+      {blockList ? (
+        <SheetAction
+          icon="ban"
+          label={t("m.plBlock.action")}
+          sub={t("m.plBlock.sub")}
+          onPress={run(() => {
+            const core = songCore(track.title, track.artist);
+            blockInPlaylist(blockList, core);
+            const st = usePlayerStore.getState();
+            if (ctx.queueUid) st.removeFromQueue(ctx.queueUid);
+            else if (st.current?.id === track.id) void st.next("next");
+            ctx.onSnoozed?.();
+            useToastStore.getState().show(t("m.plBlock.done"), "info", {
+              label: t("player.undo"),
+              fn: () => unblockInPlaylist(blockList, core),
+            });
+          })}
         />
       ) : null}
       {realPlaylist ? (

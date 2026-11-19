@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { FlatList, Text, View } from "react-native";
+import { Alert, FlatList, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAddToPlaylist } from "../src/components/AddToPlaylistSheet";
@@ -30,6 +30,13 @@ export default function QueueScreen() {
 
   const upcoming = queue.slice(index + 1);
   const past = queue.slice(0, Math.max(0, index));
+
+  function confirmClear() {
+    Alert.alert(t("m.queue.clear"), t("m.queue.clearBody", { n: upcoming.length }), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("m.queue.clear"), style: "destructive", onPress: () => usePlayerStore.getState().clearUpcoming() },
+    ]);
+  }
 
   return (
     <View className="bg-bg flex-1" style={{ paddingTop: insets.top }}>
@@ -75,6 +82,13 @@ export default function QueueScreen() {
                   <TrackRow key={item.uid} track={item} dim onPress={() => void usePlayerStore.getState().jumpTo(i)} />
                 ))
               : null}
+
+            {upcoming.length > 1 ? (
+              <View className="flex-row gap-2 px-4 pb-2">
+                <Button small kind="secondary" icon="shuffle" label={t("m.queue.reshuffle")} onPress={() => usePlayerStore.getState().reshuffleUpcoming()} />
+                <Button small kind="secondary" icon="x" label={t("m.queue.clear")} onPress={confirmClear} />
+              </View>
+            ) : null}
 
             {current ? (
               <View className="pt-2">

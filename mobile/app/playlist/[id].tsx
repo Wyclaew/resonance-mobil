@@ -1,20 +1,21 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, FlatList, Pressable, Share, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Keyboard, Pressable, ScrollView, Share, Text, TextInput, View } from "react-native";
 
 import { Icon } from "../../src/components/Icon";
 import { useBottomSpace } from "../../src/components/MiniPlayer";
+import { PlaylistSuggestions } from "../../src/components/PlaylistSuggestions";
 import { usePlaylistStyleSheet } from "../../src/components/PlaylistStyleSheet";
 import { Sheet, SheetAction } from "../../src/components/Sheet";
 import { TrackRow } from "../../src/components/TrackRow";
-import { Button, EmptyState, Eyebrow, IconButton, Mosaic, TopBar } from "../../src/components/ui";
+import { Button, Chip, EmptyState, Eyebrow, IconButton, Mosaic, TopBar } from "../../src/components/ui";
 import { useCovers } from "../../src/store/useCovers";
 import { duration } from "../../src/lib/fmt";
 import { hapticSuccess, hapticWarn } from "../../src/lib/haptics";
 import { useLang, useT } from "../../src/lib/i18n.mobile";
 import { filterById } from "../../src/lib/filters";
 import { cooldownRemaining } from "../../src/lib/karma";
-import { getProfile, usePlaylistProfiles } from "../../src/lib/playlistProfile";
+import { getProfile, setKeepOffline, usePlaylistProfiles } from "../../src/lib/playlistProfile";
 import * as pl from "../../src/lib/playlists";
 import { onTracksRepaired } from "../../src/lib/repairTracks";
 import { encodePlaylist } from "../../src/lib/share";
@@ -23,7 +24,29 @@ import { usePlayerStore } from "../../src/store/usePlayerStore";
 import { usePlaylistStore } from "../../src/store/usePlaylistStore";
 import { useToastStore } from "../../src/store/useToastStore";
 import { useColors } from "../../src/theme";
-import type { Playlist, PlaylistTrack } from "../../src/types";
+import type { Playlist, PlaylistTrack, Track } from "../../src/types";
+
+type SortKey = "manual" | "recent" | "title" | "artist" | "duration" | "karma";
+const SORT_KEYS: SortKey[] = ["manual", "recent", "title", "artist", "duration", "karma"];
+
+/** Görünen sıra: "manual" liste sırasıdır, kopya üzerinde çalışılır. */
+function sortTracks(tracks: PlaylistTrack[], key: SortKey, lang: string): PlaylistTrack[] {
+  const byText = (a: string, b: string) => a.localeCompare(b, lang);
+  switch (key) {
+    case "recent":
+      return [...tracks].sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0));
+    case "title":
+      return [...tracks].sort((a, b) => byText(a.title, b.title));
+    case "artist":
+      return [...tracks].sort((a, b) => byText(a.artist, b.artist) || byText(a.title, b.title));
+    case "duration":
+      return [...tracks].sort((a, b) => (b.durationMs ?? 0) - (a.durationMs ?? 0));
+    case "karma":
+      return [...tracks].sort((a, b) => b.karma - a.karma);
+    default:
+      return tracks;
+  }
+}
 
 /**
  * Çalma listesi — masaüstü `PlaylistView`: sırayla / rastgele / önerili çal,
@@ -39,13 +62,15 @@ export default function PlaylistScreen() {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [sortMode, setSortMode] = useState<"manual" | "karma">("manual");
+  const [sortKey, setSortKey] = useState<SortKey>("manual");
+  const [onlyDownloaded, setOnlyDownloaded] = useState(false);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState("");
   const [reorder, setReorder] = useState(false);
+  const [reachedEnd, setReachedEnd] = useState(false);
   const downloaded = useDownloadStore((s) => s.downloaded);
   const cover = useCovers((s) => (id ? s.covers[id] : undefined));
 
@@ -66,13 +91,27 @@ export default function PlaylistScreen() {
   useEffect(() => onTracksRepaired(() => void load()), [load]);
 
   const shown = useMemo(() => {
-    const sorted = sortMode === "karma" ? [...tracks].sort((a, b) => b.karma - a.karma) : tracks;
+    const sorted = sortTracks(tracks, sortKey, lang);
+    const available = onlyDownloaded ? sorted.filter((tr) => tr.source === "local" || downloaded.has(tr.id)) : sorted;
     const q = query.trim().toLowerCase();
-    return q ? sorted.filter((tr) => tr.title.toLowerCase().includes(q) || tr.artist.toLowerCase().includes(q)) : sorted;
-  }, [tracks, sortMode, query]);
+    return q ? available.filter((tr) => tr.title.toLowerCase().includes(q) || tr.artist.toLowerCase().includes(q)) : available;
+  }, [tracks, sortKey, onlyDownloaded, downloaded, lang, query]);
+  const trackIds = useMemo(() => new Set(tracks.map((tr) => tr.id)), [tracks]);
+  // Satırlara SABİT geri çağrılar (TrackRow `memo`'su işlesin); güncel liste ref'ten okunur.
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const voteRef = useRef<(track: PlaylistTrack, dir: 1 | -1) => Promise<void>>(async () => {});
+  const playItem = useCallback(
+    (item: Track) => void usePlayerStore.getState().playNow(item, shownRef.current, id),
+    [id]
+  );
 
   // Arama açılınca / sorgu değişince listenin başına dön (sonuçlar görünür kalsın).
   const listRef = useRef<FlatList<PlaylistTrack>>(null);
+  const newNameRef = useRef(newName);
+  newNameRef.current = newName;
+  const nameRef = useRef(playlist?.name);
+  nameRef.current = playlist?.name;
   useEffect(() => {
     if (searching) listRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [searching, query]);
@@ -82,7 +121,7 @@ export default function PlaylistScreen() {
   useEffect(() => {
     if (id) getProfile(id);
   }, [id]);
-  const profile = stored ?? { filters: [], styles: [], isolate: true, artists: {} };
+  const profile = stored ?? { filters: [], styles: [], isolate: true, artists: {}, everyN: 0, blockedCores: [], keepOffline: false };
   const styleLabel = [
     ...profile.styles,
     ...profile.filters.map((f) => {
@@ -118,6 +157,12 @@ export default function PlaylistScreen() {
     });
   }
 
+  voteRef.current = vote;
+  const sheetFor = useCallback(
+    (tr: Track) => ({ playlistId: id, onRemoved: load, onVote: (dir: 1 | -1) => void voteRef.current(tr as PlaylistTrack, dir) }),
+    [id, load]
+  );
+
   async function move(from: number, to: number) {
     if (!id || to < 0 || to >= tracks.length) return;
     const next = [...tracks];
@@ -127,13 +172,28 @@ export default function PlaylistScreen() {
     await pl.reorderPlaylist(id, next.map((x) => x.id));
   }
 
-  async function rename() {
-    const n = newName.trim();
-    if (!id || !n) return;
-    await usePlaylistStore.getState().rename(id, n);
-    setRenaming(false);
-    await load();
+  function startRename() {
+    setNewName(playlist?.name ?? "");
+    setEditingName(true);
   }
+
+  // Gönder, odak kaybı ve klavyenin kapanması aynı anda gelebilir: ilki kaydeder.
+  const commitRename = useCallback(async () => {
+    setEditingName(false);
+    const n = newNameRef.current.trim();
+    if (!id || !n || n === nameRef.current) return;
+    nameRef.current = n;
+    setPlaylist((p) => (p ? { ...p, name: n } : p));
+    await usePlaylistStore.getState().rename(id, n);
+    await load();
+  }, [id, load]);
+
+  // Android'de geri tuşu klavyeyi kapatır ama odağı bırakmaz → blur gelmez.
+  useEffect(() => {
+    if (!editingName) return;
+    const sub = Keyboard.addListener("keyboardDidHide", () => void commitRename());
+    return () => sub.remove();
+  }, [editingName, commitRename]);
 
   function confirmDelete() {
     if (!id || !playlist) return;
@@ -156,17 +216,32 @@ export default function PlaylistScreen() {
         <Mosaic uris={cover} size={112} radius={14} />
         <View className="ml-4 flex-1">
           <Eyebrow>{playlist?.source === "spotify" ? "Spotify" : playlist?.source === "ytmusic" ? "YouTube Music" : t("playlist.title")}</Eyebrow>
-          <Text className="text-text mt-1 text-[24px] leading-[28px]" style={{ fontFamily: "Archivo_800ExtraBold" }} numberOfLines={3}>
-            {playlist?.name ?? ""}
-          </Text>
+          {editingName ? (
+            <TextInput
+              autoFocus
+              selectTextOnFocus
+              value={newName}
+              onChangeText={setNewName}
+              onBlur={() => void commitRename()}
+              onSubmitEditing={() => void commitRename()}
+              returnKeyType="done"
+              accessibilityLabel={t("playlist.rename")}
+              className="text-text border-accent mt-1 border-b text-[24px] leading-[28px]"
+              style={{ fontFamily: "Archivo_800ExtraBold", paddingVertical: 0 }}
+            />
+          ) : (
+            <Pressable onPress={startRename} accessibilityRole="button" accessibilityHint={t("playlist.rename")}>
+              <Text className="text-text mt-1 text-[24px] leading-[28px]" style={{ fontFamily: "Archivo_800ExtraBold" }} numberOfLines={3}>
+                {playlist?.name ?? ""}
+              </Text>
+            </Pressable>
+          )}
           <Text className="text-muted mt-1.5 text-[12px]" style={{ fontFamily: "JetBrainsMono_400Regular" }}>
-            {`${t("playlist.trackCount", { count: tracks.length })} · ${duration(totalMs, lang)}${
-              sortMode === "karma" ? ` · ${t("playlist.karma")}` : ""
-            }`}
+            {`${t("playlist.trackCount", { count: tracks.length })} · ${duration(totalMs, lang)}`}
           </Text>
         </View>
       </View>
-      {tracks.length ? (
+      {shown.length ? (
         <View className="mt-4 flex-row gap-2">
           <Button
             kind="primary"
@@ -175,7 +250,7 @@ export default function PlaylistScreen() {
             onPress={() => void usePlayerStore.getState().playNow(shown[0], shown, id)}
             className="flex-1"
           />
-          <IconButton name="shuffle" label={t("playlist.playShuffled")} onPress={() => void usePlayerStore.getState().playShuffled(tracks, id)} />
+          <IconButton name="shuffle" label={t("playlist.playShuffled")} onPress={() => void usePlayerStore.getState().playShuffled(shown, id)} />
           {/* Önerili karışık: liste tarzının kullanıldığı yer — simge yerine yazılı düğme
               (yalnız ✦ simgesi bulunmuyordu). */}
           <Button
@@ -206,6 +281,14 @@ export default function PlaylistScreen() {
           <Icon name="chevronRight" size={16} color={c.faint} />
         </Pressable>
       ) : null}
+      {tracks.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-5 mt-3" contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}>
+          <Chip icon="download" label={t("m.sort.downloaded")} active={onlyDownloaded} onPress={() => { setReorder(false); setOnlyDownloaded((v) => !v); }} />
+          {SORT_KEYS.map((key) => (
+            <Chip key={key} label={t(`m.sort.${key}`)} active={sortKey === key} onPress={() => { setReorder(false); setSortKey(key); }} />
+          ))}
+        </ScrollView>
+      ) : null}
       {reorder ? (
         <View className="mt-3 flex-row items-center justify-between">
           <Text className="text-accent text-[12px]">{t("m.playlist.reorderHint")}</Text>
@@ -221,7 +304,7 @@ export default function PlaylistScreen() {
         title={playlist?.name}
         right={
           <>
-            <IconButton name="search" label={t("playlist.searchInList")} active={searching} onPress={() => { setSearching((v) => !v); setQuery(""); }} />
+            <IconButton name="search" label={t("playlist.searchInList")} active={searching} onPress={() => { setReorder(false); setSearching((v) => !v); setQuery(""); }} />
             <IconButton name="more" label={t("playlist.playOptions")} onPress={() => setMenu(true)} />
           </>
         }
@@ -264,12 +347,21 @@ export default function PlaylistScreen() {
         contentContainerStyle={{ paddingBottom: bottom, paddingHorizontal: 4 }}
         initialNumToRender={14}
         windowSize={9}
+        onEndReached={() => setReachedEnd(true)}
+        ListFooterComponent={
+          id && tracks.length ? (
+            // Aramada/sıralarken GİZLİ ama takılı kalır: yeniden takılınca öneriler sıfırdan çekilmesin.
+            <View style={{ display: query.trim() || reorder ? "none" : "flex" }}>
+              <PlaylistSuggestions playlistId={id} excludeIds={trackIds} active={reachedEnd} onAdded={() => void load()} />
+            </View>
+          ) : null
+        }
         renderItem={({ item, index }) => (
           <TrackRow
             track={item}
             karma={item.karma}
-            sheet={{ playlistId: id, onRemoved: load, onVote: (dir) => void vote(item, dir) }}
-            onPress={() => void usePlayerStore.getState().playNow(item, shown, id)}
+            sheet={sheetFor}
+            onPressTrack={playItem}
             right={
               reorder ? (
                 <View className="flex-row">
@@ -283,7 +375,13 @@ export default function PlaylistScreen() {
         ListEmptyComponent={
           loaded ? (
             <EmptyState
-              text={query ? t("playlist.noMatchFor", { query }) : `${t("playlist.emptyBefore")} ＋ ${t("playlist.emptyAfter")}`}
+              text={
+                query
+                  ? t("playlist.noMatchFor", { query })
+                  : onlyDownloaded
+                    ? t("m.sort.noDownloaded")
+                    : `${t("playlist.emptyBefore")} ＋ ${t("playlist.emptyAfter")}`
+              }
             />
           ) : null
         }
@@ -301,16 +399,7 @@ export default function PlaylistScreen() {
             if (n) useToastStore.getState().show(t("m.playlist.downloadQueued", { n }), "info");
           }}
         />
-        <SheetAction
-          icon="arrowDownUp"
-          label={sortMode === "manual" ? t("playlist.sortByKarma") : t("playlist.sortManual")}
-          onPress={() => {
-            setMenu(false);
-            setSortMode((m) => (m === "manual" ? "karma" : "manual"));
-            setReorder(false);
-          }}
-        />
-        {sortMode === "manual" ? (
+        {sortKey === "manual" ? (
           <SheetAction
             icon="grip"
             label={t("m.playlist.reorder")}
@@ -318,17 +407,28 @@ export default function PlaylistScreen() {
               setMenu(false);
               setQuery("");
               setSearching(false);
+              setOnlyDownloaded(false);
               setReorder(true);
             }}
           />
         ) : null}
         <SheetAction
-          icon="pencil"
-          label={t("playlist.rename")}
+          icon="hardDrive"
+          label={profile.keepOffline ? t("m.offline.off") : t("m.offline.on")}
+          sub={t("m.offline.sub")}
           onPress={() => {
             setMenu(false);
-            setNewName(playlist?.name ?? "");
-            setRenaming(true);
+            if (!id) return;
+            const on = !profile.keepOffline;
+            setKeepOffline(id, on);
+            if (on) {
+              void useDownloadStore
+                .getState()
+                .enqueueMany(tracks)
+                .then((n) => useToastStore.getState().show(t("m.offline.enabled", { n }), "success"));
+            } else {
+              useToastStore.getState().show(t("m.offline.disabled"), "info");
+            }
           }}
         />
         <SheetAction
@@ -342,20 +442,6 @@ export default function PlaylistScreen() {
           }}
         />
         <SheetAction icon="trash" label={t("playlist.deleteList")} danger onPress={() => { setMenu(false); confirmDelete(); }} />
-      </Sheet>
-
-      <Sheet visible={renaming} onClose={() => setRenaming(false)} title={t("playlist.rename")}>
-        <View className="flex-row items-center gap-2 px-5 pb-4 pt-1">
-          <TextInput
-            autoFocus
-            value={newName}
-            onChangeText={setNewName}
-            returnKeyType="done"
-            onSubmitEditing={rename}
-            className="bg-bg border-border text-text h-12 flex-1 rounded-full border px-4 text-[15px]"
-          />
-          <Button kind="primary" label={t("m.common.save")} onPress={rename} disabled={!newName.trim()} />
-        </View>
       </Sheet>
     </View>
   );

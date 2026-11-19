@@ -3,7 +3,7 @@ import TrackPlayer, { Event, State } from "react-native-track-player";
 import { t } from "../lib/i18n.mobile";
 import { onAdvancedTo, recordEndedPlay, suppressMoodSignal, usePlayerStore } from "../store/usePlayerStore";
 import { useToastStore } from "../store/useToastStore";
-import { setWantPlaying } from "./keepAlive";
+import { setWantPlaying, wantsPlayback } from "./keepAlive";
 import * as engine from "./player";
 import { invalidateUrl } from "./urlCache";
 import { useSleepTimer } from "./sleepTimer";
@@ -92,7 +92,14 @@ export function installAutoAdvance(): void {
     try {
       const store = usePlayerStore.getState();
       const current = store.current;
-      if (!current || engine.loadedItemUid() !== current.uid) return;
+      if (!current) return;
+      if (engine.loadedItemUid() !== current.uid) {
+        // ⛔ Eskiden sessizce dönülüyordu: motor ile kuyruk ayrışınca (ör. yarıda kalan
+        // devralma) müzik orada dururdu. Kullanıcı çalmak istiyorsa sıradakiyle sürdür.
+        console.warn(`[audio] kuyruk bitti ama motor başka parçada (${engine.loadedItemUid()} ≠ ${current.uid})`);
+        if (wantsPlayback()) await store.next("ended");
+        return;
+      }
       const { position, duration } = await TrackPlayer.getProgress();
       const expected = duration > 0 ? duration : current.durationMs / 1000;
 

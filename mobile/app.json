@@ -3,7 +3,7 @@
     "name": "Resonance",
     "slug": "resonance-mobil",
     "scheme": "resonance",
-    "version": "1.0.4",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -29,7 +29,7 @@
         "android.permission.REQUEST_INSTALL_PACKAGES",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ],
-      "versionCode": 5
+      "versionCode": 7
     },
     "plugins": [
       "expo-sqlite",
@@ -55,15 +55,16 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0c0c0d",
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/splash-blank.png",
           "imageWidth": 120,
           "dark": {
             "backgroundColor": "#0c0c0d",
-            "image": "./assets/splash-icon.png"
+            "image": "./assets/splash-blank.png"
           }
         }
       ],
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "./plugins/withGradleMemory"
     ],
     "experiments": {
       "typedRoutes": true

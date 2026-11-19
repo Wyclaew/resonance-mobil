@@ -2,12 +2,13 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
-import TrackPlayer, { useProgress } from "react-native-track-player";
+import TrackPlayer from "react-native-track-player";
 
 import { mmss } from "../lib/fmt";
 import { hapticSelect } from "../lib/haptics";
 import { usePlayerStore } from "../store/usePlayerStore";
 import { useColors } from "../theme";
+import { useLiveProgress } from "../audio/useLiveProgress";
 
 /**
  * Sürüklenebilir ilerleme çubuğu. Eskisi yalnız dokunmayla sarıyordu ve 2 px
@@ -16,7 +17,7 @@ import { useColors } from "../theme";
  */
 export function Seekbar() {
   const c = useColors();
-  const { position, duration } = useProgress(500);
+  const { position, duration } = useLiveProgress(500);
   const pending = usePlayerStore((s) => s.pendingStartMs);
   const itemDuration = usePlayerStore((s) => (s.current?.durationMs ?? 0) / 1000);
   const total = duration > 0 ? duration : itemDuration;

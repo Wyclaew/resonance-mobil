@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Keyboard, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -7,6 +7,7 @@ import { Icon } from "../../src/components/Icon";
 import { useBottomSpace } from "../../src/components/MiniPlayer";
 import { TrackRow } from "../../src/components/TrackRow";
 import { EmptyState, Eyebrow, Segmented } from "../../src/components/ui";
+import { cachedSearch, prewarmTop, searchLibrary, searchRemote } from "../../src/lib/fastSearch";
 import { useT } from "../../src/lib/i18n.mobile";
 import {
   clearSearchHistory,
@@ -20,8 +21,11 @@ import { useToastStore } from "../../src/store/useToastStore";
 import { useColors } from "../../src/theme";
 import type { Track } from "../../src/types";
 
-const DEBOUNCE_MS = 450;
+// Önbellekte olmayan sorgu için ağ isteği bekleme süresi (yerel sonuçlar beklemez).
+const DEBOUNCE_MS = 300;
 const MIN_CHARS = 2;
+/** Kütüphane sorgusu (yerel tarama) her tuşta değil, kısa duraksamada. */
+const LIBRARY_DEBOUNCE_MS = 120;
 
 /**
  * Ara — yazdıkça gelir (Enter gerekmez). İki kip (masaüstü SearchView):
@@ -35,6 +39,7 @@ export default function Search() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"track" | "lyrics">("track");
   const [results, setResults] = useState<Track[]>([]);
+  const [local, setLocal] = useState<Track[]>([]);
   const [hits, setHits] = useState<LyricHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -48,11 +53,34 @@ export default function Search() {
     const id = ++reqId.current;
     if (q.length < MIN_CHARS) {
       setResults([]);
+      setLocal([]);
       setHits([]);
       setSearched(false);
       setLoading(false);
       setError(null);
       return;
+    }
+    // Kütüphane her tuşta, beklemeden (yerel SQLite).
+    let libTimer: ReturnType<typeof setTimeout> | null = null;
+    if (mode === "track") {
+      libTimer = setTimeout(() => {
+        void searchLibrary(q)
+          .then((found) => id === reqId.current && setLocal(found))
+          .catch((e) => console.warn("[ara] kütüphane:", e));
+      }, LIBRARY_DEBOUNCE_MS);
+      const cached = cachedSearch(q);
+      if (cached) {
+        setResults(cached);
+        setHits([]);
+        setSearched(true);
+        setLoading(false);
+        setError(null);
+        return () => {
+          if (libTimer) clearTimeout(libTimer);
+        };
+      }
+    } else {
+      setLocal([]);
     }
     const handle = setTimeout(async () => {
       setLoading(true);
@@ -64,10 +92,11 @@ export default function Search() {
           setHits(found);
           setResults([]);
         } else {
-          const found = await Extractor.search(q, 25, true);
+          const found = await searchRemote(q, 25);
           if (id !== reqId.current) return;
           setResults(found);
           setHits([]);
+          prewarmTop(found);
         }
         setSearched(true);
       } catch (e) {
@@ -76,14 +105,28 @@ export default function Search() {
         if (id === reqId.current) setLoading(false);
       }
     }, DEBOUNCE_MS);
-    return () => clearTimeout(handle);
+    return () => {
+      clearTimeout(handle);
+      if (libTimer) clearTimeout(libTimer);
+    };
   }, [query, mode]);
 
-  function play(track: Track) {
+  // Kütüphane eşleşmeleri üstte; ağ sonuçlarında aynı parça tekrar görünmez.
+  const combined = useMemo(() => {
+    const seen = new Set(local.map((tr) => tr.id));
+    return [...local, ...results.filter((tr) => !seen.has(tr.id))];
+  }, [local, results]);
+
+  const combinedRef = useRef(combined);
+  combinedRef.current = combined;
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  // Sabit: satırlar yazarken yeniden çizilmesin (TrackRow memo).
+  const play = useCallback((track: Track) => {
     Keyboard.dismiss();
-    setHistory(rememberSearch(query));
-    void usePlayerStore.getState().playNow(track, results);
-  }
+    setHistory(rememberSearch(queryRef.current));
+    void usePlayerStore.getState().playNow(track, combinedRef.current);
+  }, []);
 
   async function playLyricHit(h: LyricHit) {
     Keyboard.dismiss();
@@ -201,14 +244,28 @@ export default function Search() {
             </Pressable>
           )}
         />
-      ) : results.length ? (
+      ) : combined.length ? (
         <FlatList
-          data={results}
+          data={combined}
           keyExtractor={(tr) => tr.id}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
           contentContainerStyle={{ paddingTop: 8, paddingBottom: bottom, paddingHorizontal: 4 }}
-          renderItem={({ item }) => <TrackRow track={item} onPress={() => play(item)} />}
+          renderItem={({ item, index }) => (
+            <View>
+              {index === 0 && local.length ? (
+                <View className="px-4 pb-1 pt-2">
+                  <Eyebrow>{t("m.search.inLibrary")}</Eyebrow>
+                </View>
+              ) : index === local.length && local.length ? (
+                <View className="px-4 pb-1 pt-4">
+                  <Eyebrow>{t("m.search.online")}</Eyebrow>
+                </View>
+              ) : null}
+              <TrackRow track={item} onPressTrack={play} />
+            </View>
+          )}
+          ListFooterComponent={loading ? <ActivityIndicator className="py-4" color={c.muted} /> : null}
         />
       ) : searched && !loading ? (
         <EmptyState text={error ?? t("search.noResults")} icon={error ? "warning" : "search"} />

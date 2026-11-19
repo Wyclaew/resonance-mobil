@@ -14,6 +14,8 @@ import { Icon } from "./Icon";
 import { KarmaBar } from "./KarmaBar";
 import { useTrackSheet, type TrackSheetContext } from "./TrackSheet";
 import { Artwork } from "./ui";
+import { prewarmUrls } from "../audio/urlCache";
+import { onCellular } from "../lib/mobileSettings";
 
 export { Eyebrow } from "./ui";
 
@@ -30,7 +32,8 @@ function TrackRowBase({
   note,
   meta,
   index,
-  onPress,
+  onPress: onPressProp,
+  onPressTrack,
   sheet,
   right,
   dim,
@@ -45,8 +48,17 @@ function TrackRowBase({
   /** Sıra numarası (listede konum). */
   index?: number;
   onPress?: () => void;
-  /** Uzun basış / ⋮ ile açılan parça sayfasının bağlamı. `false` = sayfa yok. */
-  sheet?: TrackSheetContext | false;
+  /**
+   * `onPress` yerine: satırın parçasıyla çağrılan SABİT geri çağrı. Liste ekranları
+   * bunu `useCallback` ile verir → `memo` satırı gerçekten atlar (her çizimde yeni
+   * kapanış verilince bütün görünür satırlar yeniden çiziliyordu).
+   */
+  onPressTrack?: (track: Track) => void;
+  /**
+   * Uzun basış / ⋮ ile açılan parça sayfasının bağlamı. `false` = sayfa yok.
+   * İşlev verilirse bağlam sayfa AÇILIRKEN üretilir (satır başına nesne yaratılmaz).
+   */
+  sheet?: TrackSheetContext | false | ((track: Track) => TrackSheetContext);
   right?: React.ReactNode;
   /** Sıranın geçmiş kısmı gibi ikincil satırlar. */
   dim?: boolean;
@@ -60,13 +72,17 @@ function TrackRowBase({
   const openSheet = () => {
     if (sheet === false) return;
     hapticTap();
-    useTrackSheet.getState().open(track, sheet ?? {});
+    useTrackSheet.getState().open(track, typeof sheet === "function" ? sheet(track) : (sheet ?? {}));
   };
+  const onPress = onPressTrack ? () => onPressTrack(track) : onPressProp;
   const running = job?.status === "running" || job?.status === "queued";
 
   return (
     <Pressable
       onPress={onPress}
+      // Parmak değer değmez adresi ısıt (Spotify'ın önizleme kartlarındaki ön hazırlık):
+      // dokunuş bitene kadar geçen ~100-150 ms çözüme gider. Yalnız Wi-Fi'da.
+      onPressIn={onPress && track.source === "youtube" && !onCellular() ? () => void prewarmUrls([track.sourceId]) : undefined}
       onLongPress={sheet === false ? undefined : openSheet}
       delayLongPress={320}
       android_ripple={{ color: c.surface2 }}

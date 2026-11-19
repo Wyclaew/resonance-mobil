@@ -1,6 +1,5 @@
 import { router, useSegments } from "expo-router";
 import { Pressable, Text, View } from "react-native";
-import { useProgress } from "react-native-track-player";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   FadeInDown,
@@ -15,6 +14,7 @@ import { hapticTap } from "../lib/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useT } from "../lib/i18n.mobile";
+import { useRemotePlayback } from "../lib/remoteControl";
 import { useOverlay } from "../store/useOverlay";
 import { usePlayback } from "../store/usePlayback";
 import { usePlayerStore } from "../store/usePlayerStore";
@@ -22,9 +22,12 @@ import { useColors } from "../theme";
 import { BarMark } from "./BarMark";
 import { Icon } from "./Icon";
 import { Artwork } from "./ui";
+import { useLiveProgress } from "../audio/useLiveProgress";
 
 export const TAB_BAR_HEIGHT = 58;
 export const MINI_PLAYER_HEIGHT = 64;
+/** RemoteDeviceBar yüksekliği (döngüsel içe aktarma olmasın diye burada). */
+const REMOTE_BAR_SPACE = 44;
 /** Mini oynatıcının görünmediği ekranlar (kendi oynatıcı arayüzü olanlar). */
 const HIDDEN_ON = new Set(["player", "ambient", "onboarding", "queue"]);
 
@@ -146,7 +149,7 @@ function useSwipe() {
 /** Alt kenardaki ince ilerleme çizgisi — kendi aboneliği, üst bileşeni yormaz. */
 function ProgressLine() {
   const c = useColors();
-  const { position, duration } = useProgress(1000);
+  const { position, duration } = useLiveProgress(1000);
   const pending = usePlayerStore((s) => s.pendingStartMs);
   const durationMs = usePlayerStore((s) => s.current?.durationMs ?? 0);
   const ratio =
@@ -162,5 +165,7 @@ function ProgressLine() {
 export function useBottomSpace(inTabs: boolean): number {
   const insets = useSafeAreaInsets();
   const hasCurrent = usePlayerStore((s) => !!s.current);
-  return (inTabs ? 0 : insets.bottom) + (hasCurrent ? MINI_PLAYER_HEIGHT + 4 : 0) + 20;
+  // Başka cihazın "… çalıyor" çubuğu da altta yer kaplar (RemoteDeviceBar).
+  const hasRemote = useRemotePlayback((s) => !!s.device);
+  return (inTabs ? 0 : insets.bottom) + (hasCurrent ? MINI_PLAYER_HEIGHT + 4 : 0) + (hasRemote ? REMOTE_BAR_SPACE : 0) + 20;
 }

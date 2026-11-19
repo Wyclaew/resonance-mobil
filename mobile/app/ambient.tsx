@@ -4,7 +4,6 @@ import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions } from "react-native";
-import { useProgress } from "react-native-track-player";
 
 import { BarMark } from "../src/components/BarMark";
 import { Artwork } from "../src/components/ui";
@@ -15,6 +14,7 @@ import { bestThumb } from "../src/lib/thumbs";
 import { usePlayback } from "../src/store/usePlayback";
 import { usePlayerStore } from "../src/store/usePlayerStore";
 import { alpha, useColors } from "../src/theme";
+import { useLiveProgress } from "../src/audio/useLiveProgress";
 
 /**
  * Ambiyans — masaüstündeki ekran koruyucunun mobil karşılığı.
@@ -29,7 +29,7 @@ export default function Ambient() {
   const t = useT();
   const current = usePlayerStore((s) => s.current);
   const playing = usePlayback((s) => s.playing);
-  const progress = useProgress(500);
+  const progress = useLiveProgress(500);
   const { width, height } = useWindowDimensions();
   const [lines, setLines] = useState<LrcLine[] | null>(null);
   const [now, setNow] = useState(Date.now());

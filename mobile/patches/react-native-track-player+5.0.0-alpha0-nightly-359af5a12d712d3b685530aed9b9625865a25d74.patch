@@ -1,5 +1,57 @@
+diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/kotlinaudio/models/CustomCommandButton.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/kotlinaudio/models/CustomCommandButton.kt
+index 9b48e32..8e75fa6 100644
+--- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/kotlinaudio/models/CustomCommandButton.kt
++++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/kotlinaudio/models/CustomCommandButton.kt
+@@ -45,5 +45,32 @@ enum class CustomCommandButton(
+             .setSessionCommand(SessionCommand("NEXT", Bundle()))
+             .setIconResId(R.drawable.media3_icon_next)
+             .build(),
++    ),
++    // Resonance: kilit ekranından oy ve indirme (media3 özel düğmeleri; JS'e
++    // remote-like / remote-dislike / remote-bookmark olayı olarak gider).
++    LIKE(
++        customAction = "LIKE",
++        capability = Capability.LIKE,
++        commandButton = CommandButton.Builder(CommandButton.ICON_THUMB_UP_UNFILLED)
++            .setDisplayName("Like")
++            .setSessionCommand(SessionCommand("LIKE", Bundle()))
++            .build(),
++    ),
++    DISLIKE(
++        customAction = "DISLIKE",
++        capability = Capability.DISLIKE,
++        commandButton = CommandButton.Builder(CommandButton.ICON_THUMB_DOWN_UNFILLED)
++            .setDisplayName("Dislike")
++            .setSessionCommand(SessionCommand("DISLIKE", Bundle()))
++            .build(),
++    ),
++    BOOKMARK(
++        customAction = "BOOKMARK",
++        capability = Capability.BOOKMARK,
++        commandButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
++            .setDisplayName("Download")
++            .setIconResId(com.doublesymmetry.trackplayer.R.drawable.rntp_download)
++            .setSessionCommand(SessionCommand("BOOKMARK", Bundle()))
++            .build(),
+     );
+ }
+\ No newline at end of file
+diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicEvents.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicEvents.kt
+index 2f9f28f..6cc85de 100644
+--- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicEvents.kt
++++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicEvents.kt
+@@ -35,6 +35,9 @@ class MusicEvents(private val reactContext: ReactContext) : BroadcastReceiver()
+         const val BUTTON_JUMP_BACKWARD = "remote-jump-backward"
+         const val BUTTON_DUCK = "remote-duck"
+         const val BUTTON_BROWSE = "remote-browse"
++        const val BUTTON_LIKE = "remote-like"
++        const val BUTTON_DISLIKE = "remote-dislike"
++        const val BUTTON_BOOKMARK = "remote-bookmark"
+ 
+         // Playback Events
+         const val PLAYBACK_PLAY_WHEN_READY_CHANGED = "playback-play-when-ready-changed"
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index b495b5a..6875ef7 100644
+index b495b5a..e4fcddd 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 @@ -206,7 +206,8 @@ class MusicService : HeadlessJsMediaService() {
@@ -12,3 +64,30 @@ index b495b5a..6875ef7 100644
          )
          player = QueuedAudioPlayer(this@MusicService, options)
          fakePlayer.release()
+@@ -937,6 +938,9 @@ class MusicService : HeadlessJsMediaService() {
+                     CustomCommandButton.JUMP_FORWARD.customAction -> { it.seekForward() }
+                     CustomCommandButton.NEXT.customAction -> { it.seekToNext() }
+                     CustomCommandButton.PREVIOUS.customAction -> { it.seekToPrevious() }
++                    CustomCommandButton.LIKE.customAction -> emit(MusicEvents.BUTTON_LIKE)
++                    CustomCommandButton.DISLIKE.customAction -> emit(MusicEvents.BUTTON_DISLIKE)
++                    CustomCommandButton.BOOKMARK.customAction -> emit(MusicEvents.BUTTON_BOOKMARK)
+                 }
+             }
+             return super.onCustomCommand(session, controller, command, args)
+diff --git a/node_modules/react-native-track-player/android/src/main/res/drawable/rntp_download.xml b/node_modules/react-native-track-player/android/src/main/res/drawable/rntp_download.xml
+new file mode 100644
+index 0000000..f1d018b
+--- /dev/null
++++ b/node_modules/react-native-track-player/android/src/main/res/drawable/rntp_download.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Resonance: kilit ekranı "indir" düğmesi (media3'te indirme ikonu yok). -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M11,4h2v8.17l2.59,-2.58L17,11l-5,5 -5,-5 1.41,-1.41L11,12.17V4zM5,18h14v2H5z" />
++</vector>
